@@ -232,11 +232,11 @@ body {
 <div id="scene">
     <canvas id="c-clouds"></canvas>
     <canvas id="c-sun"></canvas>
+    <canvas id="c-lp"></canvas>
+    <canvas id="c-city"></canvas>
     <canvas id="c-rain"></canvas>
     <canvas id="c-fog"></canvas>
     <canvas id="c-lightning"></canvas>
-    <!-- light pollution canvas — above sky, below clouds -->
-    <canvas id="c-lp"></canvas>
 
     <div id="hud">
         <div id="hud-name">—</div>
@@ -330,6 +330,7 @@ let cloudState = { density:0, wind:0, storm:0, daylight:1 };
 let fogState   = { density:0, wind:0 };
 let liveTimer  = null;
 let stars      = null;
+let cityBuildings = null;
 
 const scene = document.getElementById('scene');
 const CC = document.getElementById('c-clouds');
@@ -338,6 +339,7 @@ const RC = document.getElementById('c-rain');
 const FC = document.getElementById('c-fog');
 const LC = document.getElementById('c-lightning');
 const LP = document.getElementById('c-lp');
+const CT = document.getElementById('c-city');
 
 const cctx = CC.getContext('2d');
 const sctx = SC.getContext('2d');
@@ -345,12 +347,14 @@ const rctx = RC.getContext('2d');
 const fctx = FC.getContext('2d');
 const lctx = LC.getContext('2d');
 const lpctx = LP.getContext('2d');
+const ctctx = CT.getContext('2d');
 
 function W() { return scene.clientWidth  || window.innerWidth;  }
 function H() { return scene.clientHeight || 480; }
 
 function resizeAll() {
-    [CC, SC, RC, FC, LC, LP].forEach(c => { c.width = W(); c.height = H(); });
+    [CC, SC, RC, FC, LC, LP, CT].forEach(c => { c.width = W(); c.height = H(); });
+    cityBuildings = null; // rebuild on resize
 }
 
 window.addEventListener('resize', () => { resizeAll(); stars = null; });
@@ -694,6 +698,122 @@ function drawFog(time) {
 }
 
 // ─────────────────────────────────────────────
+// MĚSTSKÁ SILUETA
+// ─────────────────────────────────────────────
+function buildCity() {
+    const w = W(), h = H();
+    const buildings = [];
+    const seed = 42; // fixed layout
+    let rng = seed;
+    const rand = () => { rng = (rng * 1664525 + 1013904223) & 0xffffffff; return (rng >>> 0) / 0xffffffff; };
+
+    // Base horizon sits at ~78% height
+    const baseY = h * 0.78;
+
+    let x = -20;
+    while (x < w + 60) {
+        const bw  = rand() * 38 + 18;
+        const bh  = rand() * h * 0.28 + h * 0.06;
+        const by  = baseY - bh;
+        // Some taller landmark buildings scattered in
+        const tall = rand() < 0.12;
+        const bh2  = tall ? bh * 1.8 : bh;
+        const by2  = baseY - bh2;
+
+        // Window rows
+        const windows = [];
+        const cols = Math.floor(bw / 7);
+        const rows = Math.floor(bh2 / 9);
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (rand() < 0.55) {
+                    windows.push({ cx: c, cy: r, lit: rand() < 0.38 });
+                }
+            }
+        }
+
+        buildings.push({ x, y: by2, w: bw, h: bh2, windows, cols, rows, tall });
+        x += bw + rand() * 6 + 1;
+    }
+    return buildings;
+}
+
+function drawCity(time) {
+    ctctx.clearRect(0, 0, W(), H());
+
+    if (!currentWeather) { requestAnimationFrame(drawCity); return; }
+
+    const dl    = getDL(currentWeather.hour ?? 12);
+    const fog   = isFog(currentWeather);
+    const fogI  = fog ? 1 : 0;
+    const cloud = currentWeather.cloud / 100;
+    const night = 1 - dl;
+    const vis   = fog ? clamp(1 - fogI * 0.85, 0.05, 0.5) : clamp(1 - cloud * 0.35, 0.25, 1);
+
+    if (!cityBuildings) cityBuildings = buildCity();
+
+    const baseY = H() * 0.78;
+
+    // Ground fill
+    const gGrad = ctctx.createLinearGradient(0, baseY, 0, H());
+    const gr = fog ? 40 : Math.round(lerp(20, 35, dl));
+    gGrad.addColorStop(0, `rgba(${gr},${gr+2},${gr+4},${vis * 0.92})`);
+    gGrad.addColorStop(1, `rgba(${gr-5},${gr-3},${gr-1},${vis})`);
+    ctctx.fillStyle = gGrad;
+    ctctx.fillRect(0, baseY, W(), H() - baseY);
+
+    for (const b of cityBuildings) {
+        // Building body — slightly different shade per building for depth
+        const shade = fog
+            ? Math.round(lerp(38, 58, Math.random() * 0 + 0.5))
+            : Math.round(lerp(18, 42, dl) + (b.tall ? 4 : 0));
+
+        ctctx.fillStyle = `rgba(${shade},${shade+1},${shade+3},${vis})`;
+        ctctx.fillRect(b.x, b.y, b.w, b.h);
+
+        // Subtle top edge highlight (moonlight / light pollution rim)
+        const rimAlpha = night * (fog ? 0.04 : clamp(1 - cloud * 1.2, 0, 0.12));
+        if (rimAlpha > 0.01) {
+            ctctx.fillStyle = `rgba(200,210,220,${rimAlpha})`;
+            ctctx.fillRect(b.x, b.y, b.w, 1.5);
+        }
+
+        // Windows — only visible at night / low light
+        if (dl < 0.7) {
+            const wOpacity = clamp((1 - dl * 1.4) * vis * 0.9, 0, 1);
+            if (wOpacity > 0.05) {
+                const ww = 3.5, wh = 3.5, px = 6, py = 8;
+                for (const win of b.windows) {
+                    const wx = b.x + 3 + win.cx * px;
+                    const wy = b.y + 5 + win.cy * py;
+                    if (wx + ww > b.x + b.w - 2) continue;
+                    if (wy + wh > b.y + b.h - 2) continue;
+                    if (win.lit) {
+                        ctctx.fillStyle = `rgba(255,235,150,${wOpacity * 0.85})`;
+                    } else {
+                        ctctx.fillStyle = `rgba(60,80,100,${wOpacity * 0.25})`;
+                    }
+                    ctctx.fillRect(wx, wy, ww, wh);
+                }
+            }
+        }
+    }
+
+    // Visibility haze overlay — fog makes buildings wash out
+    if (fog || cloud > 0.7) {
+        const hazeAlpha = fog ? 0.55 : cloud * 0.18;
+        const hazeGrad = ctctx.createLinearGradient(0, H() * 0.55, 0, H());
+        hazeGrad.addColorStop(0, `rgba(200,210,215,0)`);
+        hazeGrad.addColorStop(0.4, `rgba(200,210,215,${hazeAlpha * 0.4})`);
+        hazeGrad.addColorStop(1, `rgba(200,210,215,${hazeAlpha})`);
+        ctctx.fillStyle = hazeGrad;
+        ctctx.fillRect(0, H() * 0.55, W(), H() * 0.45);
+    }
+
+    requestAnimationFrame(drawCity);
+}
+
+// ─────────────────────────────────────────────
 // BLESK
 // ─────────────────────────────────────────────
 function triggerLightning() {
@@ -710,40 +830,61 @@ function triggerLightning() {
 }
 
 // ─────────────────────────────────────────────
-// SRÁŽKY
+// SRÁŽKY  (intenzita 0–8 mm/h)
+//   0.0–0.5  slabý déšť  — tenké krátké kapky, malá hustota
+//   0.5–2.0  mírný déšť  — středně dlouhé kapky
+//   2.0–5.0  silný déšť  — dlouhé silné kapky, více kapek
+//   5.0+     průtrž      — maximální délka, šířka, hustota
 // ─────────────────────────────────────────────
-function createDrop(snow) {
+function rainParams(rainMm, snow) {
+    if (snow) return { count: 400, lengthMin: 0, lengthMax: 0, speedMin: 0.5, speedMax: 1.8, radMin: 1.0, radMax: 2.8, lw: 0, alpha: 0.95 };
+    const r = clamp(rainMm, 0.1, 8);
+    if (r < 0.5) return  { count: 160, lengthMin: 10, lengthMax: 22, speedMin: 3,   speedMax: 7,  lw: 1.0, alpha: 0.55 };
+    if (r < 2.0) return  { count: 280, lengthMin: 18, lengthMax: 36, speedMin: 5,   speedMax: 10, lw: 1.3, alpha: 0.72 };
+    if (r < 5.0) return  { count: 420, lengthMin: 28, lengthMax: 52, speedMin: 7,   speedMax: 14, lw: 1.8, alpha: 0.85 };
+    return               { count: 560, lengthMin: 38, lengthMax: 68, speedMin: 10,  speedMax: 18, lw: 2.4, alpha: 0.92 };
+}
+
+function createDrop(snow, params) {
+    const p = params || rainParams(currentWeather?.rain ?? 0.5, snow);
     return {
         x:     Math.random() * (W() + 240) - 120,
         y:     Math.random() * (H() + 240) - 240,
-        l:     snow ? 0 : Math.random() * 40 + 20,
-        s:     snow ? Math.random() * 1.2 + 0.5 : Math.random() * 8 + 4,
-        r:     snow ? Math.random() * 2.2 + 1.2 : 0,
+        l:     snow ? 0 : p.lengthMin + Math.random() * (p.lengthMax - p.lengthMin),
+        s:     snow ? p.speedMin + Math.random() * (p.speedMax - p.speedMin)
+                    : p.speedMin + Math.random() * (p.speedMax - p.speedMin),
+        r:     snow ? p.radMin + Math.random() * (p.radMax - p.radMin) : 0,
         drift: snow ? Math.random() * 0.6 + 0.2 : 0
     };
 }
 
 function initRain() {
     const snow = isSnow(currentWeather ?? {});
+    const p = rainParams(currentWeather?.rain ?? 0.5, snow);
     drops = [];
-    for (let i = 0; i < 500; i++) drops.push(createDrop(snow));
+    for (let i = 0; i < p.count; i++) drops.push(createDrop(snow, p));
 }
 
 function drawRain() {
     const wind  = currentWeather?.wind || 0;
     const angle = wind * 8;
     const snow  = isSnow(currentWeather ?? {});
+    const rainMm = currentWeather?.rain ?? 0.5;
+    const p = raining ? rainParams(rainMm, snow) : null;
 
     rctx.clearRect(0, 0, W(), H());
 
-    if (raining) {
+    if (raining && p) {
         if (snow) {
-            rctx.fillStyle = 'rgba(235,240,245,0.95)';
+            rctx.fillStyle = `rgba(235,240,245,${p.alpha})`;
         } else {
-            rctx.strokeStyle = (currentWeather?.rain > 2)
-                ? 'rgba(180,200,220,0.9)'
-                : 'rgba(120,140,160,0.95)';
-            rctx.lineWidth = 1.5;
+            // Heavier rain = slightly brighter, more visible streaks
+            const heavy = clamp(rainMm / 5, 0, 1);
+            const r = Math.round(lerp(110, 190, heavy));
+            const g = Math.round(lerp(130, 210, heavy));
+            const b2 = Math.round(lerp(150, 230, heavy));
+            rctx.strokeStyle = `rgba(${r},${g},${b2},${p.alpha})`;
+            rctx.lineWidth = p.lw;
         }
 
         for (const d of drops) {
@@ -759,14 +900,14 @@ function drawRain() {
 
             const pad = 120;
             if (d.y > H() + pad || d.x < -pad*2 || d.x > W() + pad*2) {
-                const nd = createDrop(snow);
+                const nd = createDrop(snow, p);
                 d.x = Math.random() * (W() + pad*2) - pad;
                 d.y = -Math.random() * pad - (snow ? nd.r * 2 : nd.l);
                 d.l = nd.l; d.s = nd.s; d.r = nd.r; d.drift = nd.drift;
             }
         }
 
-        if (!snow && currentWeather.rain > 2 && currentWeather.cloud > 90 && Math.random() < 0.01) {
+        if (!snow && rainMm > 2 && currentWeather.cloud > 90 && Math.random() < 0.01) {
             triggerLightning();
         }
     }
@@ -777,10 +918,19 @@ function drawRain() {
 // ─────────────────────────────────────────────
 // APLIKACE POČASÍ
 // ─────────────────────────────────────────────
+function rainBucket(w) {
+    if (!w || w.rain <= 0.1) return 'none';
+    if (isSnow(w)) return 'snow';
+    if (w.rain < 0.5) return 'light';
+    if (w.rain < 2.0) return 'moderate';
+    if (w.rain < 5.0) return 'heavy';
+    return 'torrential';
+}
+
 function applyWeather(w) {
     currentWeather = w;
 
-    const newP = isSnow(w) ? 'snow' : w.rain > 0.1 ? 'rain' : 'none';
+    const newP = rainBucket(w);
     raining = w.rain > 0.1;
 
     if (newP !== precipType) {
@@ -957,6 +1107,7 @@ requestAnimationFrame(drawClouds);
 requestAnimationFrame(drawFog);
 requestAnimationFrame(drawSunMoon);
 requestAnimationFrame(drawLightPollution);
+requestAnimationFrame(drawCity);
 drawRain();
 
 fetchAndRender();
