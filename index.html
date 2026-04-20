@@ -15,14 +15,12 @@ body {
     flex-direction: column;
 }
 
-/* ── SCENE ── */
 #scene {
     position: relative;
     width: 100%;
     flex: 1;
     min-height: 480px;
     overflow: hidden;
-    transition: background 0.6s ease;
 }
 
 #scene canvas {
@@ -39,121 +37,14 @@ body {
     color: rgba(255,255,255,0.88);
     font-size: 12px;
     line-height: 1.9;
-    text-shadow: 0 1px 4px rgba(0,0,0,0.7);
-    pointer-events: none;
-}
-
-#hud-name {
-    font-size: 16px;
-    font-weight: bold;
-    letter-spacing: 2.5px;
-    margin-bottom: 2px;
-}
-
-.live-dot {
-    display: inline-block;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #ff5555;
-    margin-right: 6px;
-    animation: blink 1.4s infinite;
-    vertical-align: middle;
-}
-
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.15; }
 }
 
 #hud-tag {
     position: absolute;
     top: 14px; right: 16px;
-    z-index: 99;
     font-size: 9px;
-    letter-spacing: 1.5px;
     color: rgba(255,255,255,0.45);
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-    pointer-events: none;
 }
-
-/* ── PANEL ── */
-#panel {
-    background: #111;
-    padding: 14px 16px 16px;
-    border-top: 1px solid #1e1e1e;
-}
-
-#tabs {
-    display: flex;
-    margin-bottom: 14px;
-    border-bottom: 1px solid #1e1e1e;
-}
-
-.tab {
-    flex: 1;
-    padding: 7px 0;
-    text-align: center;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    color: #3a3a3a;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s;
-    user-select: none;
-    font-family: inherit;
-}
-
-.tab.on  { color: #bbb; border-bottom-color: #777; }
-.tab:hover:not(.on) { color: #777; }
-
-#p-live, #p-test { display: none; }
-.p-on { display: block !important; }
-
-.stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-bottom: 10px;
-}
-
-.stat {
-    background: #1a1a1a;
-    border: 1px solid #222;
-    border-radius: 5px;
-    padding: 8px 10px;
-    text-align: center;
-}
-
-.stat-lbl {
-    font-size: 8px;
-    color: #3a3a3a;
-    letter-spacing: 1.5px;
-    margin-bottom: 4px;
-}
-
-.stat-val {
-    font-size: 18px;
-    color: #aaa;
-    font-weight: bold;
-}
-
-.stat-unit {
-    font-size: 8px;
-    color: #444;
-}
-
-#btn-refresh {
-    width: 100%;
-    padding: 7px;
-    background: transparent;
-    border: 1px solid #2a2a2a;
-    border-radius: 3px;
-    color: #555;
-    font-size: 9px;
-    letter-spacing: 2px;
-    cursor: pointer;
-}
-
 </style>
 </head>
 <body>
@@ -169,69 +60,59 @@ body {
         <div id="hud-name">—</div>
         <div id="hud-sub"></div>
     </div>
-    <div id="hud-tag">Praha · 50°N 14°E</div>
-</div>
-
-<div id="panel">
-    <div id="tabs">
-        <div class="tab on" onclick="switchTab('live')">LIVE</div>
-        <div class="tab" onclick="switchTab('test')">TEST</div>
-    </div>
+    <div id="hud-tag">Praha</div>
 </div>
 
 <script>
 
-// ───────── FPS LIMIT ─────────
+// ─────────────────────────────
+// SAFE FPS LIMIT (NOVÉ)
+// ─────────────────────────────
 let lastFrame = 0;
 const FPS = 30;
 const FRAME_INTERVAL = 1000 / FPS;
 
-// ───────── REDUKCE ZÁTĚŽE ─────────
-const STAR_COUNT = 45;
-const RAIN_COUNT = 220;
-const FOG_COUNT = 32;
-
-// ───────── STAV ─────────
-let stars = null;
-let cloudBands = [];
-let fogPuffs = [];
-let drops = [];
-
-// ───────── CANVAS ─────────
-const scene = document.getElementById('scene');
-const CC = document.getElementById('c-clouds');
-const SC = document.getElementById('c-sun');
-const RC = document.getElementById('c-rain');
-const FC = document.getElementById('c-fog');
-
-const cctx = CC.getContext('2d');
-const sctx = SC.getContext('2d');
-const rctx = RC.getContext('2d');
-const fctx = FC.getContext('2d');
-
-function W(){return scene.clientWidth;}
-function H(){return scene.clientHeight;}
-
-// ───────── FPS GUARD ─────────
 function fpsGate(time){
     if (time - lastFrame < FRAME_INTERVAL) return false;
     lastFrame = time;
     return true;
 }
 
-// ───────── STARS INIT ─────────
-function initStars(){
-    stars = [];
-    for(let i=0;i<STAR_COUNT;i++){
-        stars.push([
-            Math.random()*W(),
-            Math.random()*H()*0.7,
-            Math.random()*1.5+0.3
-        ]);
-    }
-}
+// ─────────────────────────────
+// CANVAS
+// ─────────────────────────────
+const scene = document.getElementById('scene');
+const CC = document.getElementById('c-clouds');
+const SC = document.getElementById('c-sun');
+const RC = document.getElementById('c-rain');
+const FC = document.getElementById('c-fog');
+const LC = document.getElementById('c-lightning');
 
-// ───────── CLOUDS ─────────
+const cctx = CC.getContext('2d');
+const sctx = SC.getContext('2d');
+const rctx = RC.getContext('2d');
+const fctx = FC.getContext('2d');
+const lctx = LC.getContext('2d');
+
+function W(){return scene.clientWidth;}
+function H(){return scene.clientHeight;}
+
+// ─────────────────────────────
+// REDUKCE ZÁTĚŽE
+// ─────────────────────────────
+const STAR_COUNT = 45;
+const RAIN_COUNT = 220;
+const FOG_COUNT = 32;
+
+// ─────────────────────────────
+// STAV
+// ─────────────────────────────
+let stars = null;
+let drops = [];
+
+// ─────────────────────────────
+// CLOUDS (SAFE FPS)
+// ─────────────────────────────
 function drawClouds(time){
     if(!fpsGate(time)){
         requestAnimationFrame(drawClouds);
@@ -239,11 +120,12 @@ function drawClouds(time){
     }
 
     cctx.clearRect(0,0,W(),H());
-
     requestAnimationFrame(drawClouds);
 }
 
-// ───────── FOG ─────────
+// ─────────────────────────────
+// FOG (SAFE FPS)
+// ─────────────────────────────
 function drawFog(time){
     if(!fpsGate(time)){
         requestAnimationFrame(drawFog);
@@ -251,11 +133,12 @@ function drawFog(time){
     }
 
     fctx.clearRect(0,0,W(),H());
-
     requestAnimationFrame(drawFog);
 }
 
-// ───────── SUN ─────────
+// ─────────────────────────────
+// SUN (SAFE FPS)
+// ─────────────────────────────
 function drawSun(time){
     if(!fpsGate(time)){
         requestAnimationFrame(drawSun);
@@ -263,12 +146,27 @@ function drawSun(time){
     }
 
     sctx.clearRect(0,0,W(),H());
-
     requestAnimationFrame(drawSun);
 }
 
-// ───────── INIT ─────────
+// ─────────────────────────────
+// INIT STARS (MENŠÍ ZÁTĚŽ)
+// ─────────────────────────────
+function initStars(){
+    stars = [];
+    for(let i=0;i<STAR_COUNT;i++){
+        stars.push([
+            Math.random()*W(),
+            Math.random()*H()*0.7
+        ]);
+    }
+}
+
+// ─────────────────────────────
+// START
+// ─────────────────────────────
 initStars();
+
 requestAnimationFrame(drawClouds);
 requestAnimationFrame(drawFog);
 requestAnimationFrame(drawSun);
