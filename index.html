@@ -15,6 +15,7 @@ body {
     flex-direction: column;
 }
 
+/* ── SCENE ── */
 #scene {
     position: relative;
     width: 100%;
@@ -40,7 +41,6 @@ body {
     line-height: 1.9;
     text-shadow: 0 1px 4px rgba(0,0,0,0.7);
     pointer-events: none;
-    transition: opacity 0.4s;
 }
 
 #hud-name {
@@ -48,6 +48,21 @@ body {
     font-weight: bold;
     letter-spacing: 2.5px;
     margin-bottom: 2px;
+}
+
+.live-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #ff5555;
+    margin-right: 6px;
+    animation: blink 1.4s infinite;
+    vertical-align: middle;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.15; }
 }
 
 #hud-tag {
@@ -61,22 +76,165 @@ body {
     pointer-events: none;
 }
 
-/* zbytek CSS beze změn */
-#panel { background:#111; padding:14px 16px 16px; border-top:1px solid #1e1e1e; }
-#tabs { display:flex; margin-bottom:14px; border-bottom:1px solid #1e1e1e; }
-.tab { flex:1; padding:7px 0; text-align:center; font-size:10px; color:#3a3a3a; cursor:pointer; border-bottom:2px solid transparent; }
-.tab.on { color:#bbb; border-bottom-color:#777; }
-.p-on { display:block !important; }
-#p-live,#p-test { display:none; }
+/* ── PANEL ── */
+#panel {
+    background: #111;
+    padding: 14px 16px 16px;
+    border-top: 1px solid #1e1e1e;
+}
+
+#tabs {
+    display: flex;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #1e1e1e;
+}
+
+.tab {
+    flex: 1;
+    padding: 7px 0;
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: #3a3a3a;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+    font-family: inherit;
+}
+
+.tab.on  { color: #bbb; border-bottom-color: #777; }
+.tab:hover:not(.on) { color: #777; }
+
+#p-live, #p-test { display: none; }
+.p-on { display: block !important; }
+
+/* live panel */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.stat {
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 5px;
+    padding: 8px 10px;
+    text-align: center;
+}
+
+.stat-lbl {
+    font-size: 8px;
+    color: #3a3a3a;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+}
+
+.stat-val {
+    font-size: 18px;
+    color: #aaa;
+    font-weight: bold;
+}
+
+.stat-unit {
+    font-size: 8px;
+    color: #444;
+    margin-left: 1px;
+}
+
+#btn-refresh {
+    width: 100%;
+    padding: 7px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    color: #555;
+    font-size: 9px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+#btn-refresh:hover { border-color: #555; color: #aaa; }
+
+#live-error {
+    display: none;
+    margin-top: 8px;
+    font-size: 9px;
+    color: #cc4444;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+.live-note {
+    margin-top: 8px;
+    font-size: 9px;
+    color: #2e2e2e;
+    text-align: center;
+    letter-spacing: 0.3px;
+    line-height: 1.6;
+}
+
+/* test panel */
+.sl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.sl-row label {
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 1px;
+    min-width: 74px;
+}
+
+.sl-row input[type=range] {
+    flex: 1;
+    accent-color: #777;
+    height: 3px;
+}
+
+.sl-val {
+    font-size: 10px;
+    color: #999;
+    min-width: 40px;
+    text-align: right;
+}
+
+#presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.p-btn {
+    padding: 4px 9px;
+    font-size: 8px;
+    letter-spacing: 1px;
+    background: #161616;
+    border: 1px solid #252525;
+    border-radius: 3px;
+    color: #3a3a3a;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.p-btn:hover    { color: #888; border-color: #3a3a3a; }
+.p-btn.on       { color: #ccc; border-color: #555; background: #1e1e1e; }
 </style>
 </head>
-
 <body>
 
 <div id="scene">
     <canvas id="c-clouds"></canvas>
     <canvas id="c-sun"></canvas>
-    <canvas id="c-lp"></canvas>
     <canvas id="c-rain"></canvas>
     <canvas id="c-fog"></canvas>
     <canvas id="c-lightning"></canvas>
@@ -85,30 +243,97 @@ body {
         <div id="hud-name">—</div>
         <div id="hud-sub"></div>
     </div>
-
     <div id="hud-tag">Praha · 50°N 14°E</div>
 </div>
 
 <div id="panel">
     <div id="tabs">
-        <div class="tab on" id="tab-live" onclick="switchTab('live')">LIVE PRAHA</div>
-        <div class="tab" id="tab-test" onclick="switchTab('test')">TEST</div>
+        <div class="tab on" id="tab-live" onclick="switchTab('live')">⬤ LIVE PRAHA</div>
+        <div class="tab"    id="tab-test" onclick="switchTab('test')">◎ TEST REŽIM</div>
     </div>
 
+    <!-- LIVE -->
     <div id="p-live" class="p-on">
+        <div class="stat-grid">
+            <div class="stat"><div class="stat-lbl">TEPLOTA</div><div class="stat-val" id="ls-temp">—</div><span class="stat-unit">°C</span></div>
+            <div class="stat"><div class="stat-lbl">SRÁŽKY</div><div class="stat-val" id="ls-rain">—</div><span class="stat-unit">mm</span></div>
+            <div class="stat"><div class="stat-lbl">OBLAČNOST</div><div class="stat-val" id="ls-cloud">—</div><span class="stat-unit">%</span></div>
+            <div class="stat"><div class="stat-lbl">VÍTR</div><div class="stat-val" id="ls-wind">—</div><span class="stat-unit">km/h</span></div>
+        </div>
         <button id="btn-refresh" onclick="fetchAndRender()">↻ AKTUALIZOVAT</button>
-        <div id="live-error" style="display:none;color:#c44">Chyba načítání</div>
+        <div id="live-error">Chyba načítání — zkontroluj připojení k internetu.</div>
+        <div class="live-note">Data: Open-Meteo API · automatická aktualizace každou minutu</div>
     </div>
 
+    <!-- TEST -->
     <div id="p-test">
-        <input type="range" id="sl-temp" min="-10" max="35" value="20" oninput="sliderUpdate()">
+        <div class="sl-row">
+            <label>HODINA</label>
+            <input type="range" id="sl-hour"  min="0"   max="23"  step="0.5" value="12" oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-hour">12:00</span>
+        </div>
+        <div class="sl-row">
+            <label>TEPLOTA</label>
+            <input type="range" id="sl-temp"  min="-15" max="40"  step="1"   value="20" oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-temp">20°C</span>
+        </div>
+        <div class="sl-row">
+            <label>OBLAČNOST</label>
+            <input type="range" id="sl-cloud" min="0"   max="100" step="1"   value="20" oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-cloud">20%</span>
+        </div>
+        <div class="sl-row">
+            <label>SRÁŽKY</label>
+            <input type="range" id="sl-rain"  min="0"   max="8"   step="0.1" value="0"  oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-rain">0.0 mm</span>
+        </div>
+        <div class="sl-row">
+            <label>VÍTR (směr)</label>
+            <input type="range" id="sl-wind"  min="-1"  max="1"   step="0.05" value="0" oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-wind">0.00</span>
+        </div>
+        <div id="presets"></div>
     </div>
 </div>
 
 <script>
+// ─────────────────────────────────────────────
+// KONFIGURACE
+// ─────────────────────────────────────────────
 const LAT = 50.1071;
 const LON = 14.4473;
+const SUNRISE = 6;
+const SUNSET  = 20;
+const TWILIGHT = 2;
 
+const PRESETS = [
+    { name:"VEDRO",     temp:35,  rain:0,   cloud:5,   wind:0,    hour:15 },
+    { name:"JASNO",     temp:28,  rain:0,   cloud:10,  wind:0.2,  hour:9  },
+    { name:"POLOJASNO", temp:24,  rain:0,   cloud:35,  wind:0.15, hour:16 },
+    { name:"JASNÁ NOC", temp:12,  rain:0,   cloud:0,   wind:0.1,  hour:1  },
+    { name:"OBLAČNO",   temp:16,  rain:0,   cloud:75,  wind:-0.5, hour:18 },
+    { name:"MLHA",      temp:4,   rain:0,   cloud:98,  wind:0,    hour:5  },
+    { name:"DÉŠŤ",      temp:14,  rain:0.5, cloud:85,  wind:0.8,  hour:13 },
+    { name:"BOUŘE",     temp:19,  rain:6,   cloud:100, wind:1,    hour:21 },
+    { name:"SNÍH",      temp:-3,  rain:0.7, cloud:100, wind:-0.3, hour:9  }
+];
+
+// ─────────────────────────────────────────────
+// STAV
+// ─────────────────────────────────────────────
+let mode = 'live';
+let currentWeather = null;
+let drops = [], raining = false, precipType = null;
+let cloudBands = [], fogPuffs = [];
+let cloudState = { density:0, wind:0, storm:0, daylight:1 };
+let fogState   = { density:0, wind:0 };
+let liveTimer  = null;
+let stars      = null;
+
+// ─────────────────────────────────────────────
+// CANVASY
+// ─────────────────────────────────────────────
+const scene = document.getElementById('scene');
 const CC = document.getElementById('c-clouds');
 const SC = document.getElementById('c-sun');
 const RC = document.getElementById('c-rain');
@@ -121,85 +346,559 @@ const rctx = RC.getContext('2d');
 const fctx = FC.getContext('2d');
 const lctx = LC.getContext('2d');
 
-function W(){ return window.innerWidth; }
-function H(){ return window.innerHeight; }
+function W() { return scene.clientWidth  || window.innerWidth;  }
+function H() { return scene.clientHeight || 480; }
 
-function resize(){
-    [CC,SC,RC,FC,LC].forEach(c=>{
-        c.width=W(); c.height=H();
+function resizeAll() {
+    [CC, SC, RC, FC, LC].forEach(c => { c.width = W(); c.height = H(); });
+}
+
+window.addEventListener('resize', () => { resizeAll(); stars = null; });
+resizeAll();
+
+// ─────────────────────────────────────────────
+// MATH HELPERS
+// ─────────────────────────────────────────────
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+function getDL(hour) {
+    const ss = SUNRISE - TWILIGHT, se = SUNRISE + TWILIGHT;
+    const ds = SUNSET  - TWILIGHT, de = SUNSET  + TWILIGHT;
+    if (hour < ss || hour >= de) return 0;
+    if (hour >= se && hour < ds) return 1;
+    if (hour < se) return clamp((hour - ss) / (se - ss), 0, 1);
+    return clamp(1 - (hour - ds) / (de - ds), 0, 1);
+}
+
+// ─────────────────────────────────────────────
+// BARVY POZADÍ
+// ─────────────────────────────────────────────
+function getBG(temp, cloud) {
+    const b =
+        temp >= 30 ? [250,153,35]  :
+        temp >= 20 ? [255,210,120] :
+        temp >= 10 ? [180,210,255] :
+        temp >  0  ? [160,190,255] :
+                     [200,220,255];
+    const m = (cloud / 100) * 0.6;
+    return b.map(c => Math.round(c + (255 - c) * m));
+}
+
+function applyLight(rgb, dl) {
+    const f = lerp(0.10, 1, dl);
+    return rgb.map(c => Math.round(c * f));
+}
+
+// ─────────────────────────────────────────────
+// DETEKCE TYPU POČASÍ
+// ─────────────────────────────────────────────
+function isSnow(s) { return s.temp <= 0 || s.name === 'SNÍH'; }
+function isFog(s)  { return s.cloud >= 95 || s.name === 'MLHA'; }
+
+function guessName(temp, rain, cloud) {
+    if (temp <= 0 && rain > 0) return 'SNÍH';
+    if (rain > 3  && cloud > 90) return 'BOUŘE';
+    if (rain > 0.1) return 'DÉŠŤ';
+    if (cloud >= 95) return 'MLHA';
+    if (cloud > 70)  return 'OBLAČNO';
+    if (cloud > 30)  return 'POLOJASNO';
+    if (temp >= 30)  return 'VEDRO';
+    return 'JASNO';
+}
+
+// ─────────────────────────────────────────────
+// RENDER VIZUÁLU
+// ─────────────────────────────────────────────
+function renderVisual(s) {
+    const fog  = s.cloud / 100;
+    const snow = isSnow(s);
+    const dl   = getDL(s.hour ?? 12);
+
+    let blur = 0;
+    if (s.rain > 0 && !isFog(s)) blur = 0.6;
+    if (s.name === 'BOUŘE') blur = 1;
+    if (snow) blur = Math.max(blur, 0.8);
+
+    let bc = getBG(s.temp, s.cloud);
+    if (snow) bc = [Math.round(bc[0]*0.72), Math.round(bc[1]*0.76), Math.round(bc[2]*0.84)];
+    const fc2 = applyLight(bc, dl);
+    scene.style.background = `rgb(${fc2.join(',')})`;
+
+    const bri  = (snow ? lerp(0.52, 0.9, dl) : lerp(0.5, 1, dl)) - fog * 0.03;
+    const cont = 1 - fog * 0.03;
+    [CC, RC, FC, LC].forEach(c => {
+        c.style.filter = `blur(${blur}px) brightness(${bri}) contrast(${cont})`;
     });
-}
-window.addEventListener('resize',resize);
-resize();
-
-/* ===================== WEATHER ===================== */
-
-let currentWeather=null;
-
-function applyWeather(w){
-    currentWeather=w;
+    SC.style.filter = `blur(${blur * 0.4}px) brightness(${bri})`;
 }
 
-/* ===================== RAIN ===================== */
+// ─────────────────────────────────────────────
+// SLUNCE + MĚSÍC + HVĚZDY
+// ─────────────────────────────────────────────
+function drawSunMoon(time) {
+    sctx.clearRect(0, 0, W(), H());
 
-function drawRain(){
-    rctx.clearRect(0,0,W(),H());
-    requestAnimationFrame(drawRain);
+    if (!currentWeather) { requestAnimationFrame(drawSunMoon); return; }
+
+    const hour  = currentWeather.hour ?? 12;
+    const dl    = getDL(hour);
+    const cloud = currentWeather.cloud / 100;
+
+    // SUN ARC (6h = vlevo, 20h = vpravo)
+    const sunT = clamp((hour - 6) / 14, 0, 1);
+    const sunX = W() * 0.1 + W() * 0.8 * sunT;
+    const sunY = H() * 0.55 - Math.sin(sunT * Math.PI) * H() * 0.48;
+
+    if (dl > 0.05 && cloud < 0.88) {
+        const op = (1 - cloud) * dl * 0.92;
+        const g1 = sctx.createRadialGradient(sunX, sunY, 6, sunX, sunY, 70);
+        g1.addColorStop(0,   `rgba(255,240,180,${op * 0.55})`);
+        g1.addColorStop(0.45,`rgba(255,220,100,${op * 0.18})`);
+        g1.addColorStop(1,   'rgba(255,200,80,0)');
+        sctx.fillStyle = g1;
+        sctx.beginPath(); sctx.arc(sunX, sunY, 70, 0, Math.PI * 2); sctx.fill();
+
+        sctx.fillStyle = `rgba(255,242,165,${op})`;
+        sctx.beginPath(); sctx.arc(sunX, sunY, 18, 0, Math.PI * 2); sctx.fill();
+    }
+
+    // NIGHT: HVĚZDY + MĚSÍC
+    if (dl < 0.15) {
+        const nightT = 1 - dl / 0.15;
+
+        // hvězdy (inicializace jednou)
+        if (!stars) {
+            stars = [];
+            for (let i = 0; i < 90; i++) {
+                stars.push([
+                    Math.random() * W(),
+                    Math.random() * H() * 0.72,
+                    Math.random() * 1.5 + 0.3,
+                    Math.random() * Math.PI * 2
+                ]);
+            }
+        }
+
+        for (const [sx, sy, sr, sp] of stars) {
+            const twinkle = 0.5 + Math.sin(time * 0.0011 * 1.3 + sp) * 0.5;
+            sctx.fillStyle = `rgba(255,255,255,${nightT * (0.25 + 0.55 * twinkle) * Math.max(0, 1 - cloud * 2.2)})`;
+            sctx.beginPath(); sctx.arc(sx, sy, sr, 0, Math.PI * 2); sctx.fill();
+        }
+
+        // MĚSÍC – oblouk od 20h do 6h (přes půlnoc)
+        const moonRaw = hour < 6 ? hour + 24 : hour;
+        const moonT   = clamp((moonRaw - 20) / 14, 0, 1);
+        const moonX   = W() * 0.08 + W() * 0.84 * moonT;
+        const moonY   = H() * 0.58 - Math.sin(moonT * Math.PI) * H() * 0.45;
+        const moonOp  = nightT * Math.max(0, 1 - cloud * 1.6) * 0.9;
+
+        if (moonOp > 0.02) {
+            const mg = sctx.createRadialGradient(moonX, moonY, 3, moonX, moonY, 30);
+            mg.addColorStop(0, `rgba(220,235,255,${moonOp * 0.45})`);
+            mg.addColorStop(1, 'rgba(200,220,255,0)');
+            sctx.fillStyle = mg;
+            sctx.beginPath(); sctx.arc(moonX, moonY, 30, 0, Math.PI * 2); sctx.fill();
+
+            sctx.fillStyle = `rgba(230,240,255,${moonOp})`;
+            sctx.beginPath(); sctx.arc(moonX, moonY, 11, 0, Math.PI * 2); sctx.fill();
+        }
+    }
+
+    requestAnimationFrame(drawSunMoon);
 }
 
-/* ===================== CLOUDS ===================== */
+// ─────────────────────────────────────────────
+// MRAKY
+// ─────────────────────────────────────────────
+function createBand(i) {
+    const layer = i % 3;
+    return {
+        x: Math.random() * (W() + 600) - 300,
+        y: H() * (0.08 + layer * 0.14) + Math.random() * H() * 0.08,
+        w: Math.random() * 500 + 900,
+        h: Math.random() * 120 + 140,
+        speed: 0.03 + Math.random() * 0.06,
+        wobble: Math.random() * Math.PI * 2,
+        driftY: (Math.random() - 0.5) * 0.015,
+        layer
+    };
+}
 
-function drawClouds(){
-    cctx.clearRect(0,0,W(),H());
+function initClouds() {
+    cloudBands = [];
+    for (let i = 0; i < 7; i++) cloudBands.push(createBand(i));
+}
+
+function updateCloudState(w) {
+    cloudState.density = clamp((w.cloud - 8) / 92, 0, 1);
+    cloudState.wind    = w.wind || 0;
+    cloudState.storm   = w.name === 'BOUŘE' ? 1 : clamp(w.rain / 6, 0, 0.65);
+    cloudState.daylight = getDL(w.hour ?? 12);
+}
+
+function drawClouds(time) {
+    cctx.clearRect(0, 0, W(), H());
+
+    if (cloudState.density > 0.02) {
+        const t  = time * 0.001;
+        const wp = cloudState.wind * 0.12;
+        const ba = cloudState.density * 0.1;
+        const sh = Math.round(lerp(244, 196, cloudState.storm) * lerp(0.68, 1, cloudState.daylight));
+        const col = `${sh},${sh+3},${sh+6}`;
+
+        for (const b of cloudBands) {
+            b.x += b.speed + wp * (1 + b.layer * 0.18);
+            b.y += b.driftY + Math.sin(t * 0.08 + b.wobble) * 0.015;
+
+            if (b.x - b.w > W() + 300) { b.x = -b.w - Math.random()*260; b.y = H()*(0.08+b.layer*0.14)+Math.random()*H()*0.08; }
+            if (b.x + b.w < -320)       { b.x = W()+b.w+Math.random()*260; b.y = H()*(0.08+b.layer*0.14)+Math.random()*H()*0.08; }
+
+            const pulse = 0.95 + Math.sin(t * (0.06 + b.layer * 0.015) + b.wobble) * 0.04;
+            const alpha = ba * (0.78 + b.layer * 0.08) * pulse;
+
+            const g1 = cctx.createLinearGradient(b.x-b.w*0.6, b.y, b.x+b.w*0.6, b.y+b.h*0.15);
+            g1.addColorStop(0,    `rgba(${col},0)`);
+            g1.addColorStop(0.18, `rgba(${col},${alpha*0.12})`);
+            g1.addColorStop(0.5,  `rgba(${col},${alpha*0.34})`);
+            g1.addColorStop(0.82, `rgba(${col},${alpha*0.12})`);
+            g1.addColorStop(1,    `rgba(${col},0)`);
+            cctx.fillStyle = g1;
+            cctx.beginPath(); cctx.ellipse(b.x, b.y, b.w*0.52, b.h*0.52, 0, 0, Math.PI*2); cctx.fill();
+
+            const g2 = cctx.createLinearGradient(b.x, b.y-b.h*0.7, b.x, b.y+b.h*0.7);
+            g2.addColorStop(0,    `rgba(${col},0)`);
+            g2.addColorStop(0.35, `rgba(${col},${alpha*0.12})`);
+            g2.addColorStop(0.5,  `rgba(${col},${alpha*0.18})`);
+            g2.addColorStop(1,    `rgba(${col},0)`);
+            cctx.fillStyle = g2;
+            cctx.beginPath(); cctx.ellipse(b.x, b.y, b.w*0.42, b.h*0.78, 0, 0, Math.PI*2); cctx.fill();
+        }
+
+        cctx.fillStyle = `rgba(${col},${ba*0.26})`;
+        cctx.fillRect(0, 0, W(), H() * 0.78);
+    }
+
     requestAnimationFrame(drawClouds);
 }
 
-/* ===================== SUN ===================== */
-
-function drawSun(){
-    sctx.clearRect(0,0,W(),H());
-    requestAnimationFrame(drawSun);
+// ─────────────────────────────────────────────
+// MLHA
+// ─────────────────────────────────────────────
+function createPuff(i) {
+    const layer = i % 3;
+    const scale = layer === 0 ? 1.25 : layer === 1 ? 1 : 0.82;
+    return {
+        x: Math.random() * W(),
+        y: Math.random() * H(),
+        r: (Math.random() * 180 + 140) * scale,
+        baseAlpha: 0.03 + Math.random() * 0.04,
+        speed: 0.08 + Math.random() * 0.2,
+        wobble: Math.random() * Math.PI * 2,
+        driftY: (Math.random() - 0.5) * 0.12,
+        layer
+    };
 }
 
-/* ===================== LIGHT POLLUTION ===================== */
-
-function drawLP(){
-    lctx.clearRect(0,0,W(),H());
-    requestAnimationFrame(drawLP);
+function initFog() {
+    fogPuffs = [];
+    for (let i = 0; i < 64; i++) fogPuffs.push(createPuff(i));
 }
 
-/* ===================== FOG ===================== */
+function updateFogState(w) {
+    fogState.density = isFog(w) ? 1.35 : clamp((w.cloud - 52) / 32, 0, 0.85);
+    fogState.wind    = w.wind || 0;
+}
 
-function drawFog(){
-    fctx.clearRect(0,0,W(),H());
+function drawFog(time) {
+    fctx.clearRect(0, 0, W(), H());
+
+    if (fogState.density > 0.01) {
+        const t  = time * 0.001;
+        const wp = fogState.wind * 0.42;
+        const bo = fogState.density * 0.5;
+
+        for (const p of fogPuffs) {
+            p.x += p.speed * 1.35 + wp * (1 + p.layer * 0.45);
+            p.y += p.driftY * 1.4 + Math.sin(t * 0.42 + p.wobble) * 0.08;
+
+            if (p.x - p.r > W() + 80)  { p.x = -p.r - Math.random()*120; p.y = Math.random()*H(); }
+            if (p.x + p.r < -120)       { p.x = W()+p.r+Math.random()*120; p.y = Math.random()*H(); }
+            if (p.y < -p.r)  p.y = H() + p.r;
+            if (p.y > H()+p.r) p.y = -p.r;
+
+            const pulse = 0.8 + Math.sin(t * (0.42 + p.layer * 0.1) + p.wobble) * 0.24;
+            const alpha = p.baseAlpha * bo * pulse;
+
+            const g = fctx.createRadialGradient(p.x, p.y, p.r*0.15, p.x, p.y, p.r);
+            g.addColorStop(0,    `rgba(245,248,250,${alpha})`);
+            g.addColorStop(0.55, `rgba(245,248,250,${alpha*0.68})`);
+            g.addColorStop(1,    'rgba(245,248,250,0)');
+            fctx.fillStyle = g;
+            fctx.beginPath(); fctx.arc(p.x, p.y, p.r, 0, Math.PI*2); fctx.fill();
+        }
+
+        fctx.fillStyle = `rgba(245,248,250,${bo*0.18})`;
+        fctx.fillRect(0, 0, W(), H());
+    }
+
     requestAnimationFrame(drawFog);
 }
 
-/* ===================== API ===================== */
-
-async function fetchAndRender(){
-    const url=`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,precipitation,cloudcover,wind_speed_10m`;
-
-    const res=await fetch(url);
-    const d=await res.json();
-    applyWeather({
-        temp:d.current.temperature_2m,
-        rain:d.current.precipitation,
-        cloud:d.current.cloudcover
-    });
-
-    document.getElementById('btn-refresh').textContent="↻ OK";
+// ─────────────────────────────────────────────
+// BLESK
+// ─────────────────────────────────────────────
+function triggerLightning() {
+    lctx.fillStyle = 'rgba(255,255,255,0.9)';
+    lctx.fillRect(0, 0, W(), H());
+    setTimeout(() => {
+        lctx.clearRect(0, 0, W(), H());
+    }, 120);
+    setTimeout(() => {
+        if (Math.random() > 0.5) {
+            lctx.fillStyle = 'rgba(255,255,255,0.6)';
+            lctx.fillRect(0, 0, W(), H());
+            setTimeout(() => lctx.clearRect(0, 0, W(), H()), 80);
+        }
+    }, 180);
 }
 
-/* ===================== INIT ===================== */
+// ─────────────────────────────────────────────
+// SRÁŽKY
+// ─────────────────────────────────────────────
+function createDrop(snow) {
+    return {
+        x:     Math.random() * (W() + 240) - 120,
+        y:     Math.random() * (H() + 240) - 240,
+        l:     snow ? 0 : Math.random() * 40 + 20,
+        s:     snow ? Math.random() * 1.2 + 0.5 : Math.random() * 8 + 4,
+        r:     snow ? Math.random() * 2.2 + 1.2 : 0,
+        drift: snow ? Math.random() * 0.6 + 0.2 : 0
+    };
+}
 
+function initRain() {
+    const snow = isSnow(currentWeather ?? {});
+    drops = [];
+    for (let i = 0; i < 500; i++) drops.push(createDrop(snow));
+}
+
+function drawRain() {
+    const wind  = currentWeather?.wind || 0;
+    const angle = wind * 8;
+    const snow  = isSnow(currentWeather ?? {});
+
+    rctx.clearRect(0, 0, W(), H());
+
+    if (raining) {
+        if (snow) {
+            rctx.fillStyle = 'rgba(235,240,245,0.95)';
+        } else {
+            rctx.strokeStyle = (currentWeather?.rain > 2)
+                ? 'rgba(180,200,220,0.9)'
+                : 'rgba(120,140,160,0.95)';
+            rctx.lineWidth = 1.5;
+        }
+
+        for (const d of drops) {
+            if (snow) {
+                rctx.beginPath(); rctx.arc(d.x, d.y, d.r, 0, Math.PI*2); rctx.fill();
+                d.y += d.s;
+                d.x += wind * d.drift;
+            } else {
+                rctx.beginPath(); rctx.moveTo(d.x, d.y); rctx.lineTo(d.x + angle, d.y + d.l); rctx.stroke();
+                d.y += d.s;
+                d.x += wind * 2;
+            }
+
+            const pad = 120;
+            if (d.y > H() + pad || d.x < -pad*2 || d.x > W() + pad*2) {
+                const nd = createDrop(snow);
+                d.x = Math.random() * (W() + pad*2) - pad;
+                d.y = -Math.random() * pad - (snow ? nd.r * 2 : nd.l);
+                d.l = nd.l; d.s = nd.s; d.r = nd.r; d.drift = nd.drift;
+            }
+        }
+
+        if (!snow && currentWeather.rain > 2 && currentWeather.cloud > 90 && Math.random() < 0.01) {
+            triggerLightning();
+        }
+    }
+
+    requestAnimationFrame(drawRain);
+}
+
+// ─────────────────────────────────────────────
+// APLIKACE POČASÍ
+// ─────────────────────────────────────────────
+function applyWeather(w) {
+    currentWeather = w;
+
+    const newP = isSnow(w) ? 'snow' : w.rain > 0.1 ? 'rain' : 'none';
+    raining = w.rain > 0.1;
+
+    if (newP !== precipType) {
+        precipType = newP;
+        raining ? initRain() : (drops = []);
+    } else if (raining && drops.length === 0) {
+        initRain();
+    }
+
+    updateCloudState(w);
+    updateFogState(w);
+    renderVisual(w);
+
+    // HUD
+    const hr  = Math.floor(w.hour ?? 0);
+    const mn  = Math.round(((w.hour ?? 0) - hr) * 60);
+    const dl  = getDL(w.hour ?? 12);
+    const tod = dl < 0.05 ? 'noc' : dl < 0.35 ? 'soumrak / svítání' : '';
+
+    const isLive = mode === 'live';
+    document.getElementById('hud-name').innerHTML =
+        (isLive ? '<span class="live-dot"></span>' : '') + w.name;
+    document.getElementById('hud-sub').textContent =
+        `${w.temp}°C  ·  ${String(hr).padStart(2,'0')}:${String(mn).padStart(2,'0')}` +
+        (tod ? '  ·  ' + tod : '');
+}
+
+// ─────────────────────────────────────────────
+// LIVE — OPEN-METEO API
+// ─────────────────────────────────────────────
+async function fetchAndRender() {
+    const btn = document.getElementById('btn-refresh');
+    const err = document.getElementById('live-error');
+    btn.textContent = '↻ NAČÍTÁM...';
+    err.style.display = 'none';
+
+    try {
+        const url = `https://api.open-meteo.com/v1/forecast` +
+            `?latitude=${LAT}&longitude=${LON}` +
+            `&current=temperature_2m,precipitation,cloudcover,wind_speed_10m,wind_direction_10m`;
+
+        const res  = await fetch(url);
+        const data = await res.json();
+        const c    = data.current;
+
+        const windSign = Math.sin(c.wind_direction_10m * Math.PI / 180);
+        const hour     = new Date().getHours() + new Date().getMinutes() / 60;
+        const name     = guessName(c.temperature_2m, c.precipitation, c.cloudcover);
+
+        document.getElementById('ls-temp').textContent  = c.temperature_2m.toFixed(1);
+        document.getElementById('ls-rain').textContent  = c.precipitation.toFixed(1);
+        document.getElementById('ls-cloud').textContent = c.cloudcover;
+        document.getElementById('ls-wind').textContent  = Math.round(c.wind_speed_10m);
+
+        applyWeather({
+            name,
+            temp:  c.temperature_2m,
+            rain:  c.precipitation,
+            cloud: c.cloudcover,
+            wind:  windSign,
+            hour
+        });
+
+        btn.textContent = '↻ AKTUALIZOVAT';
+
+    } catch (e) {
+        console.error('Open-Meteo fetch failed:', e);
+        err.style.display = 'block';
+        btn.textContent = '↻ AKTUALIZOVAT';
+    }
+}
+
+// ─────────────────────────────────────────────
+// TEST — SLIDERY
+// ─────────────────────────────────────────────
+function sliderUpdate() {
+    const hour  = parseFloat(document.getElementById('sl-hour').value);
+    const temp  = parseInt(document.getElementById('sl-temp').value);
+    const cloud = parseInt(document.getElementById('sl-cloud').value);
+    const rain  = parseFloat(document.getElementById('sl-rain').value);
+    const wind  = parseFloat(document.getElementById('sl-wind').value);
+
+    const hr = Math.floor(hour);
+    const mn = Math.round((hour - hr) * 60);
+    document.getElementById('sv-hour').textContent  = `${String(hr).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
+    document.getElementById('sv-temp').textContent  = `${temp}°C`;
+    document.getElementById('sv-cloud').textContent = `${cloud}%`;
+    document.getElementById('sv-rain').textContent  = `${rain.toFixed(1)} mm`;
+    document.getElementById('sv-wind').textContent  = wind.toFixed(2);
+
+    document.querySelectorAll('.p-btn').forEach(b => b.classList.remove('on'));
+
+    applyWeather({ name: guessName(temp, rain, cloud), temp, rain, cloud, wind, hour });
+}
+
+// ─────────────────────────────────────────────
+// PŘEPÍNÁNÍ ZÁLOŽEK
+// ─────────────────────────────────────────────
+function switchTab(t) {
+    mode = t;
+    document.getElementById('tab-live').classList.toggle('on', t === 'live');
+    document.getElementById('tab-test').classList.toggle('on', t === 'test');
+    document.getElementById('p-live').classList.toggle('p-on', t === 'live');
+    document.getElementById('p-test').classList.toggle('p-on', t === 'test');
+
+    if (t === 'live') {
+        fetchAndRender();
+        if (liveTimer) clearInterval(liveTimer);
+        liveTimer = setInterval(fetchAndRender, 60000);
+    } else {
+        if (liveTimer) clearInterval(liveTimer);
+        sliderUpdate();
+    }
+}
+
+// ─────────────────────────────────────────────
+// PŘEDVOLBY (PRESETS)
+// ─────────────────────────────────────────────
+const presetsEl = document.getElementById('presets');
+PRESETS.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'p-btn';
+    b.textContent = p.name;
+    b.onclick = () => {
+        document.querySelectorAll('.p-btn').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+        document.getElementById('sl-hour').value  = p.hour;
+        document.getElementById('sl-temp').value  = p.temp;
+        document.getElementById('sl-cloud').value = p.cloud;
+        document.getElementById('sl-rain').value  = p.rain;
+        document.getElementById('sl-wind').value  = p.wind;
+        sliderUpdate();
+        b.classList.add('on');
+    };
+    presetsEl.appendChild(b);
+});
+
+// ─────────────────────────────────────────────
+// KLÁVESNICE (TEST: šipky)
+// ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+    if (mode !== 'test') return;
+    const btns = [...document.querySelectorAll('.p-btn')];
+    const cur  = btns.findIndex(b => b.classList.contains('on'));
+    let next   = cur;
+    if (e.key === 'ArrowRight') next = (cur + 1) % btns.length;
+    if (e.key === 'ArrowLeft')  next = (cur - 1 + btns.length) % btns.length;
+    if (next !== cur) btns[next].click();
+});
+
+// ─────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────
+initClouds();
+initFog();
+
+requestAnimationFrame(drawClouds);
+requestAnimationFrame(drawFog);
+requestAnimationFrame(drawSunMoon);
 drawRain();
-drawClouds();
-drawSun();
-drawLP();
-drawFog();
 
+// Načti live data hned při startu
 fetchAndRender();
+liveTimer = setInterval(fetchAndRender, 60000);
 </script>
 
 </body>
