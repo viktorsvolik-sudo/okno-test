@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Okno do dvora - Storm System</title>
+
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    transition: background 0.4s ease;
+}
+
+#world {
+    position: fixed;
+    inset: 0;
+}
+
+#fog {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+#debug {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 9999;
+    font-family: monospace;
+    font-size: 13px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 10px;
+    border-radius: 6px;
+    white-space: pre-line;
+}
+
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+}
+
+#lightpollution {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    mix-blend-mode: screen;
+}
+</style>
+</head>
+
+<body>
+
+<div id="world">
+    <canvas id="clouds"></canvas>
+    <canvas id="rain"></canvas>
+    <canvas id="fog"></canvas>
+    <canvas id="lightning"></canvas>
+    <canvas id="lightpollution"></canvas>
+</div>
+
+<div id="debug"></div>
+
+<script>
+
+// =====================================================
+// MODE
+// =====================================================
+const MODE = "TEST";
+
+// =====================================================
+// DAYLIGHT SETTINGS
+// =====================================================
+const SUNRISE_HOUR = 6;
+const SUNSET_HOUR = 20;
+const TWILIGHT_LENGTH = 2;
+
+// =====================================================
+// TEST DATA
+// =====================================================
+const testStates = [
+    { name:"VEDRO", temp:35, rain:0, cloud:5, wind:0, hour:15 },
+    { name:"JASNO", temp:28, rain:0, cloud:10, wind:0.2, hour:9 },
+    { name:"POLOJASNO", temp:24, rain:0, cloud:35, wind:0.15, hour:16 },
+    { name:"JASNA NOC", temp:12, rain:0, cloud:0, wind:0.1, hour:1 },
+    { name:"OBLACNO", temp:16, rain:0, cloud:75, wind:-0.5, hour:18 },
+    { name:"MLHA", temp:4, rain:0, cloud:98, wind:0, hour:5 },
+    { name:"DEST", temp:14, rain:0.5, cloud:85, wind:0.8, hour:13 },
+    { name:"BOURE", temp:19, rain:6, cloud:100, wind:1, hour:21 },
+    { name:"SNIH", temp:-3, rain:0.7, cloud:100, wind:-0.3, hour:9 }
+];
+
+let testIndex = 0;
+
+// =====================================================
+// NORMALIZE
+// =====================================================
+function normalizeWeather(raw) {
+    return {
+        name: raw.name || "LIVE",
+        temp: raw.temperature_2m ?? raw.temp,
+        rain: raw.precipitation ?? raw.rain,
+        cloud: raw.cloudcover ?? raw.cloud,
+        wind: raw.wind ?? 0,
+        hour: raw.hour
+    };
+}
+
+// =====================================================
+// OPEN METEO
+// =====================================================
+async function fetchWeather() {
+    const res = await fetch(
+        "https://api.open-meteo.com/v1/forecast?latitude=50.1071&longitude=14.4473&current=temperature_2m,precipitation,cloudcover,wind_speed_10m,wind_direction_10m"
+    );
+    const data = await res.json();
+
+    const wind = Math.sin(data.current.wind_direction_10m * Math.PI / 180);
+
+    return normalizeWeather({
+        name: "LIVE",
+        temperature_2m: data.current.temperature_2m,
+        precipitation: data.current.precipitation,
+        cloudcover: data.current.cloudcover,
+        wind,
+        hour: new Date().getHours() + (new Date().getMinutes() / 60)
+    });
+}
+
+// =====================================================
+// COLOR ENGINE
+// =====================================================
+function getBackgroundColor(t, cloud) {
+    let base =
+        t >= 30 ? [250,153,35] :
+        t >= 20 ? [255,210,120] :
+        t >= 10 ? [180,210,255] :
+        t > 0 ? [160,190,255] :
+        [200,220,255];
+
+    const mix = (cloud / 100) * 0.6;
+
+    return [
+        Math.round(base[0] + (255 - base[0]) * mix),
+        Math.round(base[1] + (255 - base[1]) * mix),
+        Math.round(base[2] + (255 - base[2]) * mix)
+    ];
+}
+
+function rgbArrayToString(rgb) {
+    return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+// =====================================================
+// LIGHT MODEL
+// =====================================================
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
+
+function getDaylightFactor(hour) {
+    const sunriseStart = SUNRISE_HOUR - TWILIGHT_LENGTH;
+    const sunriseEnd = SUNRISE_HOUR + TWILIGHT_LENGTH;
+    const sunsetStart = SUNSET_HOUR - TWILIGHT_LENGTH;
+    const sunsetEnd = SUNSET_HOUR + TWILIGHT_LENGTH;
+
+    if (hour < sunriseStart || hour >= sunsetEnd) return 0;
+    if (hour >= sunriseEnd && hour < sunsetStart) return 1;
+
+    if (hour >= sunriseStart && hour < sunriseEnd) {
+        return clamp((hour - sunriseStart) / (sunriseEnd - sunriseStart), 0, 1);
+    }
+
+    if (hour >= sunsetStart && hour < sunsetEnd) {
+        return clamp(1 - ((hour - sunsetStart) / (sunsetEnd - sunsetStart)), 0, 1);
+    }
+
+    return 1;
+}
+
+function applyLightToColor(rgb, daylight) {
+    const factor = lerp(0.10, 1, daylight);
+    return [
+        Math.round(rgb[0] * factor),
+        Math.round(rgb[1] * factor),
+        Math.round(rgb[2] * factor)
+    ];
+}
+
+// =====================================================
+// VISUAL SYSTEM
+// =====================================================
+function isSnowWeather(s) {
+    return s.name === "SNIH" || s.temp <= 0;
+}
+
+function isFogWeather(s) {
+    return s.name === "MLHA" || s.cloud >= 95;
+}
+
+function renderVisual(s) {
+    const fog = s.cloud / 100;
+    const isFullFog = s.cloud >= 95;
+    const isSnow = isSnowWeather(s);
+
+    let blur = 0;
+    if (s.rain > 0 && !isFullFog) blur = 0.6;
+    if (s.name === "BOURE") blur = 1;
+    if (isSnow) blur = Math.max(blur, 0.8);
+
+    const hour = MODE === "TEST"
+        ? (s.hour ?? 12)
+        : new Date().getHours() + (new Date().getMinutes() / 60);
+
+    const daylight = getDaylightFactor(hour);
+
+    let baseColor = getBackgroundColor(s.temp, s.cloud);
+
+    if (isSnow) {
+        baseColor = [
+            Math.round(baseColor[0] * 0.72),
+            Math.round(baseColor[1] * 0.76),
+            Math.round(baseColor[2] * 0.84)
+        ];
+    }
+
+    const finalColor = applyLightToColor(baseColor, daylight);
+
+    document.body.style.background = rgbArrayToString(finalColor);
+
+    document.getElementById("world").style.filter = `
+        blur(${blur}px)
+        brightness(${(isSnow ? lerp(0.52, 0.9, daylight) : lerp(0.5, 1, daylight)) - fog * 0.03})
+        contrast(${1 - fog * 0.03})
+    `;
+}
+
+// =====================================================
+// LIGHT POLLUTION SYSTEM
+// =====================================================
+const lpCanvas = document.getElementById("lightpollution");
+const lpctx = lpCanvas.getContext("2d");
+
+function resizeLightPollution() {
+    lpCanvas.width = innerWidth;
+    lpCanvas.height = innerHeight;
+}
+addEventListener("resize", resizeLightPollution);
+resizeLightPollution();
+
+function getNightFactor(hour) {
+    const daylight = getDaylightFactor(hour);
+    return 1 - daylight;
+}
+
+function drawLightPollution(time, weather) {
+    const hour = MODE === "TEST"
+        ? (weather.hour ?? 12)
+        : new Date().getHours() + new Date().getMinutes() / 60;
+
+    const night = getNightFactor(hour);
+
+    lpctx.clearRect(0, 0, lpCanvas.width, lpCanvas.height);
+    if (night <= 0.02) return;
+
+    const cloudBoost = clamp(weather.cloud / 100, 0, 1);
+    const intensity = night * (0.35 + cloudBoost * 0.65);
+
+    const centerX = lpCanvas.width * 0.55;
+    const centerY = lpCanvas.height * 0.75;
+
+    const gradient = lpctx.createRadialGradient(
+        centerX, centerY, 50,
+        centerX, centerY, lpCanvas.width * 0.9
+    );
+
+    gradient.addColorStop(0, `rgba(255,180,90,${intensity * 0.22})`);
+    gradient.addColorStop(0.3, `rgba(255,160,70,${intensity * 0.14})`);
+    gradient.addColorStop(0.6, `rgba(180,200,255,${intensity * 0.08})`);
+    gradient.addColorStop(1, `rgba(0,0,0,0)`);
+
+    lpctx.fillStyle = gradient;
+    lpctx.fillRect(0, 0, lpCanvas.width, lpCanvas.height);
+}
+
+// =====================================================
+// DRAW PRECIPITATION
+// =====================================================
+function drawRain() {
+    const wind = currentWeather?.wind || 0;
+    const angle = wind * 8;
+    const isSnow = isSnowWeather(currentWeather ?? {});
+
+    rctx.clearRect(0, 0, rainCanvas.width, rainCanvas.height);
+
+    if (raining) {
+        if (isSnow) {
+            rctx.fillStyle = "rgba(235,240,245,0.95)";
+        } else {
+            rctx.strokeStyle = currentWeather?.name === "DEST"
+                ? "rgba(120,140,160,0.95)"
+                : "white";
+            rctx.lineWidth = 1.5;
+        }
+
+        for (const d of drops) {
+            if (isSnow) {
+                rctx.beginPath();
+                rctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+                rctx.fill();
+                d.y += d.s;
+                d.x += wind * d.drift;
+            } else {
+                rctx.beginPath();
+                rctx.moveTo(d.x, d.y);
+                rctx.lineTo(d.x + angle, d.y + d.l);
+                rctx.stroke();
+                d.y += d.s;
+                d.x += wind * 2;
+            }
+        }
+    }
+
+    // 🔥 DŮLEŽITÁ ZMĚNA: animace light pollution
+    drawLightPollution(performance.now(), currentWeather);
+
+    requestAnimationFrame(drawRain);
+}
+
+// =====================================================
+// START
+// =====================================================
+setInterval(updateData, MODE === "LIVE" ? 60000 : 999999);
+updateData();
+drawRain();
+
+</script>
+
+</body>
+</html>
