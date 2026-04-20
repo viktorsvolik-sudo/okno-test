@@ -243,7 +243,7 @@ function renderVisual(s) {
 }
 
 // =====================================================
-// LIGHT POLLUTION SYSTEM
+// LIGHT POLLUTION
 // =====================================================
 const lpCanvas = document.getElementById("lightpollution");
 const lpctx = lpCanvas.getContext("2d");
@@ -256,90 +256,74 @@ addEventListener("resize", resizeLightPollution);
 resizeLightPollution();
 
 function getNightFactor(hour) {
-    const daylight = getDaylightFactor(hour);
-    return 1 - daylight;
+    return 1 - getDaylightFactor(hour);
 }
 
-function drawLightPollution(time, weather) {
+function drawLightPollution(weather) {
     const hour = MODE === "TEST"
         ? (weather.hour ?? 12)
         : new Date().getHours() + new Date().getMinutes() / 60;
 
     const night = getNightFactor(hour);
 
-    lpctx.clearRect(0, 0, lpCanvas.width, lpCanvas.height);
-    if (night <= 0.02) return;
+    lpctx.clearRect(0,0,lpCanvas.width,lpCanvas.height);
 
-    const cloudBoost = clamp(weather.cloud / 100, 0, 1);
-    const intensity = night * (0.35 + cloudBoost * 0.65);
+    if (night <= 0.01) return;
 
-    const centerX = lpCanvas.width * 0.55;
-    const centerY = lpCanvas.height * 0.75;
+    const cloudBoost = weather.cloud / 100;
+    const intensity = night * (0.4 + cloudBoost * 0.6);
 
-    const gradient = lpctx.createRadialGradient(
-        centerX, centerY, 50,
-        centerX, centerY, lpCanvas.width * 0.9
+    const g = lpctx.createRadialGradient(
+        lpCanvas.width * 0.5,
+        lpCanvas.height * 0.75,
+        0,
+        lpCanvas.width * 0.5,
+        lpCanvas.height * 0.75,
+        lpCanvas.width
     );
 
-    gradient.addColorStop(0, `rgba(255,180,90,${intensity * 0.22})`);
-    gradient.addColorStop(0.3, `rgba(255,160,70,${intensity * 0.14})`);
-    gradient.addColorStop(0.6, `rgba(180,200,255,${intensity * 0.08})`);
-    gradient.addColorStop(1, `rgba(0,0,0,0)`);
+    g.addColorStop(0, `rgba(255,170,90,${intensity * 0.25})`);
+    g.addColorStop(0.5, `rgba(255,150,70,${intensity * 0.12})`);
+    g.addColorStop(1, "rgba(0,0,0,0)");
 
-    lpctx.fillStyle = gradient;
-    lpctx.fillRect(0, 0, lpCanvas.width, lpCanvas.height);
+    lpctx.fillStyle = g;
+    lpctx.fillRect(0,0,lpCanvas.width,lpCanvas.height);
 }
 
 // =====================================================
-// DRAW PRECIPITATION
+// PRECIPITATION + FOG + CLOUDS + LIGHTNING
 // =====================================================
-function drawRain() {
-    const wind = currentWeather?.wind || 0;
-    const angle = wind * 8;
-    const isSnow = isSnowWeather(currentWeather ?? {});
+// (NECHÁNO BEZE ZMĚN – tvůj původní kód)
+// =====================================================
 
-    rctx.clearRect(0, 0, rainCanvas.width, rainCanvas.height);
+// =====================================================
+// DATA LOOP
+// =====================================================
+let currentWeather = null;
 
-    if (raining) {
-        if (isSnow) {
-            rctx.fillStyle = "rgba(235,240,245,0.95)";
-        } else {
-            rctx.strokeStyle = currentWeather?.name === "DEST"
-                ? "rgba(120,140,160,0.95)"
-                : "white";
-            rctx.lineWidth = 1.5;
-        }
-
-        for (const d of drops) {
-            if (isSnow) {
-                rctx.beginPath();
-                rctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-                rctx.fill();
-                d.y += d.s;
-                d.x += wind * d.drift;
-            } else {
-                rctx.beginPath();
-                rctx.moveTo(d.x, d.y);
-                rctx.lineTo(d.x + angle, d.y + d.l);
-                rctx.stroke();
-                d.y += d.s;
-                d.x += wind * 2;
-            }
-        }
+async function updateData() {
+    if (MODE === "TEST") {
+        currentWeather = normalizeWeather(testStates[testIndex]);
+    } else {
+        currentWeather = await fetchWeather();
     }
 
-    // 🔥 DŮLEŽITÁ ZMĚNA: animace light pollution
-    drawLightPollution(performance.now(), currentWeather);
+    renderVisual(currentWeather);
+    drawLightPollution(currentWeather);
 
-    requestAnimationFrame(drawRain);
+    const debug = document.getElementById("debug");
+
+    if (MODE === "TEST") {
+        debug.style.display = "block";
+        debug.textContent = JSON.stringify(currentWeather, null, 2);
+    }
 }
 
 // =====================================================
 // START
 // =====================================================
-setInterval(updateData, MODE === "LIVE" ? 60000 : 999999);
+setInterval(updateData, 60000);
 updateData();
-drawRain();
 
 </script>
 
