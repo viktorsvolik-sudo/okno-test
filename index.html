@@ -42,13 +42,6 @@ canvas {
     left: 0;
     pointer-events: none;
 }
-
-#lightpollution {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    mix-blend-mode: screen;
-}
 </style>
 </head>
 
@@ -59,7 +52,6 @@ canvas {
     <canvas id="rain"></canvas>
     <canvas id="fog"></canvas>
     <canvas id="lightning"></canvas>
-    <canvas id="lightpollution"></canvas>
 </div>
 
 <div id="debug"></div>
@@ -243,63 +235,374 @@ function renderVisual(s) {
 }
 
 // =====================================================
-// LIGHT POLLUTION
+// PRECIPITATION
 // =====================================================
-const lpCanvas = document.getElementById("lightpollution");
-const lpctx = lpCanvas.getContext("2d");
+const rainCanvas = document.getElementById("rain");
+const rctx = rainCanvas.getContext("2d");
 
-function resizeLightPollution() {
-    lpCanvas.width = innerWidth;
-    lpCanvas.height = innerHeight;
+let drops = [];
+let raining = false;
+let rainSpawnPadding = 120;
+
+function resize() {
+    rainCanvas.width = innerWidth;
+    rainCanvas.height = innerHeight;
+    rainSpawnPadding = Math.max(120, innerWidth * 0.12);
 }
-addEventListener("resize", resizeLightPollution);
-resizeLightPollution();
+addEventListener("resize", resize);
+resize();
 
-function getNightFactor(hour) {
-    return 1 - getDaylightFactor(hour);
+function createDrop(isSnow = false) {
+    return {
+        x: Math.random() * (rainCanvas.width + rainSpawnPadding * 2) - rainSpawnPadding,
+        y: Math.random() * (rainCanvas.height + rainSpawnPadding * 2) - rainSpawnPadding,
+        l: isSnow ? 0 : Math.random() * 40 + 20,
+        s: isSnow ? Math.random() * 1.2 + 0.5 : Math.random() * 8 + 4,
+        r: isSnow ? Math.random() * 2.2 + 1.2 : 0,
+        drift: isSnow ? Math.random() * 0.6 + 0.2 : 0
+    };
 }
 
-function drawLightPollution(weather) {
+function initRain() {
+    const isSnow = isSnowWeather(currentWeather ?? {});
+
+    drops = [];
+    for (let i = 0; i < 500; i++) {
+        drops.push(createDrop(isSnow));
+    }
+}
+
+// =====================================================
+// MOVING CLOUDS
+// =====================================================
+const cloudsCanvas = document.getElementById("clouds");
+const cctx = cloudsCanvas.getContext("2d");
+let cloudBands = [];
+let cloudState = {
+    density: 0,
+    wind: 0,
+    storm: 0,
+    daylight: 1
+};
+
+function resizeClouds() {
+    cloudsCanvas.width = innerWidth;
+    cloudsCanvas.height = innerHeight;
+}
+addEventListener("resize", resizeClouds);
+resizeClouds();
+
+function createCloudBand(index = 0) {
+    const layer = index % 3;
+    return {
+        x: Math.random() * (cloudsCanvas.width + 600) - 300,
+        y: cloudsCanvas.height * (0.08 + layer * 0.14) + Math.random() * cloudsCanvas.height * 0.08,
+        w: Math.random() * 500 + 900,
+        h: Math.random() * 120 + 140,
+        speed: 0.03 + Math.random() * 0.06,
+        wobble: Math.random() * Math.PI * 2,
+        driftY: (Math.random() - 0.5) * 0.015,
+        layer
+    };
+}
+
+function initClouds() {
+    cloudBands = [];
+    for (let i = 0; i < 7; i++) {
+        cloudBands.push(createCloudBand(i));
+    }
+}
+
+function updateCloudState(weather) {
     const hour = MODE === "TEST"
         ? (weather.hour ?? 12)
-        : new Date().getHours() + new Date().getMinutes() / 60;
+        : new Date().getHours() + (new Date().getMinutes() / 60);
+    const daylight = getDaylightFactor(hour);
 
-    const night = getNightFactor(hour);
+    cloudState.density = clamp((weather.cloud - 8) / 92, 0, 1);
+    cloudState.wind = weather.wind || 0;
+    cloudState.storm = weather.name === "BOURE" ? 1 : clamp(weather.rain / 6, 0, 0.65);
+    cloudState.daylight = daylight;
+}
 
-    lpctx.clearRect(0,0,lpCanvas.width,lpCanvas.height);
+function drawCloudsFrame(time) {
+    cctx.clearRect(0, 0, cloudsCanvas.width, cloudsCanvas.height);
 
-    if (night <= 0.01) return;
+    if (cloudState.density <= 0.02) {
+        requestAnimationFrame(drawCloudsFrame);
+        return;
+    }
 
-    const cloudBoost = weather.cloud / 100;
-    const intensity = night * (0.4 + cloudBoost * 0.6);
+    const t = time * 0.001;
+    const windPush = cloudState.wind * 0.12;
+    const baseAlpha = cloudState.density * 0.1;
+    const shade = Math.round(lerp(244, 196, cloudState.storm) * lerp(0.68, 1, cloudState.daylight));
+    const color = [shade, shade + 3, shade + 6];
 
-    const g = lpctx.createRadialGradient(
-        lpCanvas.width * 0.5,
-        lpCanvas.height * 0.75,
-        0,
-        lpCanvas.width * 0.5,
-        lpCanvas.height * 0.75,
-        lpCanvas.width
-    );
+    for (const band of cloudBands) {
+        band.x += band.speed + windPush * (1 + band.layer * 0.18);
+        band.y += band.driftY + Math.sin(t * 0.08 + band.wobble) * 0.015;
 
-    g.addColorStop(0, `rgba(255,170,90,${intensity * 0.25})`);
-    g.addColorStop(0.5, `rgba(255,150,70,${intensity * 0.12})`);
-    g.addColorStop(1, "rgba(0,0,0,0)");
+        if (band.x - band.w > cloudsCanvas.width + 300) {
+            band.x = -band.w - Math.random() * 260;
+            band.y = cloudsCanvas.height * (0.08 + band.layer * 0.14) + Math.random() * cloudsCanvas.height * 0.08;
+        }
 
-    lpctx.fillStyle = g;
-    lpctx.fillRect(0,0,lpCanvas.width,lpCanvas.height);
+        if (band.x + band.w < -320) {
+            band.x = cloudsCanvas.width + band.w + Math.random() * 260;
+            band.y = cloudsCanvas.height * (0.08 + band.layer * 0.14) + Math.random() * cloudsCanvas.height * 0.08;
+        }
+
+        const pulse = 0.95 + Math.sin(t * (0.06 + band.layer * 0.015) + band.wobble) * 0.04;
+        const alpha = baseAlpha * (0.78 + band.layer * 0.08) * pulse;
+
+        const gradient = cctx.createLinearGradient(
+            band.x - band.w * 0.6, band.y,
+            band.x + band.w * 0.6, band.y + band.h * 0.15
+        );
+        gradient.addColorStop(0, `rgba(${color[0]},${color[1]},${color[2]},0)`);
+        gradient.addColorStop(0.18, `rgba(${color[0]},${color[1]},${color[2]},${alpha * 0.12})`);
+        gradient.addColorStop(0.5, `rgba(${color[0]},${color[1]},${color[2]},${alpha * 0.34})`);
+        gradient.addColorStop(0.82, `rgba(${color[0]},${color[1]},${color[2]},${alpha * 0.12})`);
+        gradient.addColorStop(1, `rgba(${color[0]},${color[1]},${color[2]},0)`);
+
+        cctx.fillStyle = gradient;
+        cctx.beginPath();
+        cctx.ellipse(band.x, band.y, band.w * 0.52, band.h * 0.52, 0, 0, Math.PI * 2);
+        cctx.fill();
+
+        const softTop = cctx.createLinearGradient(
+            band.x, band.y - band.h * 0.7,
+            band.x, band.y + band.h * 0.7
+        );
+        softTop.addColorStop(0, `rgba(${color[0]},${color[1]},${color[2]},0)`);
+        softTop.addColorStop(0.35, `rgba(${color[0]},${color[1]},${color[2]},${alpha * 0.12})`);
+        softTop.addColorStop(0.5, `rgba(${color[0]},${color[1]},${color[2]},${alpha * 0.18})`);
+        softTop.addColorStop(1, `rgba(${color[0]},${color[1]},${color[2]},0)`);
+
+        cctx.fillStyle = softTop;
+        cctx.beginPath();
+        cctx.ellipse(band.x, band.y, band.w * 0.42, band.h * 0.78, 0, 0, Math.PI * 2);
+        cctx.fill();
+    }
+
+    cctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${baseAlpha * 0.26})`;
+    cctx.fillRect(0, 0, cloudsCanvas.width, cloudsCanvas.height * 0.78);
+
+    requestAnimationFrame(drawCloudsFrame);
+}
+
+initClouds();
+requestAnimationFrame(drawCloudsFrame);
+
+// =====================================================
+// MOVING FOG
+// =====================================================
+const fogCanvas = document.getElementById("fog");
+const fctx = fogCanvas.getContext("2d");
+let fogPuffs = [];
+let fogState = {
+    density: 0,
+    wind: 0
+};
+
+function resizeFog() {
+    fogCanvas.width = innerWidth;
+    fogCanvas.height = innerHeight;
+}
+addEventListener("resize", resizeFog);
+resizeFog();
+
+function createFogPuff(index = 0) {
+    const layer = index % 3;
+    const scale = layer === 0 ? 1.25 : layer === 1 ? 1 : 0.82;
+    return {
+        x: Math.random() * fogCanvas.width,
+        y: Math.random() * fogCanvas.height,
+        r: (Math.random() * 180 + 140) * scale,
+        baseAlpha: 0.03 + Math.random() * 0.04,
+        speed: 0.08 + Math.random() * 0.2,
+        wobble: Math.random() * Math.PI * 2,
+        driftY: (Math.random() - 0.5) * 0.12,
+        layer
+    };
+}
+
+function initFog() {
+    fogPuffs = [];
+    for (let i = 0; i < 64; i++) {
+        fogPuffs.push(createFogPuff(i));
+    }
+}
+
+function updateFogState(weather) {
+    const densityBase = isFogWeather(weather) ? 1.35 : clamp((weather.cloud - 52) / 32, 0, 0.85);
+    fogState.density = densityBase;
+    fogState.wind = weather.wind || 0;
+}
+
+function drawFogFrame(time) {
+    fctx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+
+    if (fogState.density <= 0.01) {
+        requestAnimationFrame(drawFogFrame);
+        return;
+    }
+
+    const t = time * 0.001;
+    const wind = fogState.wind;
+    const windPush = wind * 0.42;
+    const baseOpacity = fogState.density * 0.5;
+
+    for (const puff of fogPuffs) {
+        puff.x += puff.speed * 1.35 + windPush * (1 + puff.layer * 0.45);
+        puff.y += puff.driftY * 1.4 + Math.sin(t * 0.42 + puff.wobble) * 0.08;
+
+        if (puff.x - puff.r > fogCanvas.width + 80) {
+            puff.x = -puff.r - Math.random() * 120;
+            puff.y = Math.random() * fogCanvas.height;
+        }
+
+        if (puff.x + puff.r < -120) {
+            puff.x = fogCanvas.width + puff.r + Math.random() * 120;
+            puff.y = Math.random() * fogCanvas.height;
+        }
+
+        if (puff.y < -puff.r) puff.y = fogCanvas.height + puff.r;
+        if (puff.y > fogCanvas.height + puff.r) puff.y = -puff.r;
+
+        const pulse = 0.8 + Math.sin(t * (0.42 + puff.layer * 0.1) + puff.wobble) * 0.24;
+        const alpha = puff.baseAlpha * baseOpacity * pulse;
+
+        const gradient = fctx.createRadialGradient(
+            puff.x, puff.y, puff.r * 0.15,
+            puff.x, puff.y, puff.r
+        );
+        gradient.addColorStop(0, `rgba(245,248,250,${alpha})`);
+        gradient.addColorStop(0.55, `rgba(245,248,250,${alpha * 0.68})`);
+        gradient.addColorStop(1, "rgba(245,248,250,0)");
+
+        fctx.fillStyle = gradient;
+        fctx.beginPath();
+        fctx.arc(puff.x, puff.y, puff.r, 0, Math.PI * 2);
+        fctx.fill();
+    }
+
+    fctx.fillStyle = `rgba(245,248,250,${baseOpacity * 0.18})`;
+    fctx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+
+    requestAnimationFrame(drawFogFrame);
+}
+
+initFog();
+requestAnimationFrame(drawFogFrame);
+
+// =====================================================
+// LIGHTNING SYSTEM
+// =====================================================
+const lightningCanvas = document.getElementById("lightning");
+const lctx = lightningCanvas.getContext("2d");
+
+function resizeLightning() {
+    lightningCanvas.width = innerWidth;
+    lightningCanvas.height = innerHeight;
+}
+addEventListener("resize", resizeLightning);
+resizeLightning();
+
+let lightningActive = false;
+
+function triggerLightning() {
+    lightningActive = true;
+
+    lctx.fillStyle = "rgba(255,255,255,0.9)";
+    lctx.fillRect(0, 0, lightningCanvas.width, lightningCanvas.height);
+
+    setTimeout(() => {
+        lctx.clearRect(0, 0, lightningCanvas.width, lightningCanvas.height);
+        lightningActive = false;
+    }, 120);
+
+    setTimeout(() => {
+        if (Math.random() > 0.5) {
+            lctx.fillStyle = "rgba(255,255,255,0.6)";
+            lctx.fillRect(0, 0, lightningCanvas.width, lightningCanvas.height);
+
+            setTimeout(() => {
+                lctx.clearRect(0, 0, lightningCanvas.width, lightningCanvas.height);
+            }, 80);
+        }
+    }, 180);
 }
 
 // =====================================================
-// PRECIPITATION + FOG + CLOUDS + LIGHTNING
+// DRAW PRECIPITATION + STORM TRIGGER
 // =====================================================
-// (NECHÁNO BEZE ZMĚN – tvůj původní kód)
-// =====================================================
+function drawRain() {
+    const wind = currentWeather?.wind || 0;
+    const angle = wind * 8;
+    const isSnow = isSnowWeather(currentWeather ?? {});
+
+    rctx.clearRect(0, 0, rainCanvas.width, rainCanvas.height);
+
+    if (raining) {
+        if (isSnow) {
+            rctx.fillStyle = "rgba(235,240,245,0.95)";
+        } else {
+            rctx.strokeStyle = currentWeather?.name === "DEST"
+                ? "rgba(120,140,160,0.95)"
+                : "white";
+            rctx.lineWidth = 1.5;
+        }
+
+        for (const d of drops) {
+            if (isSnow) {
+                rctx.beginPath();
+                rctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+                rctx.fill();
+
+                d.y += d.s;
+                d.x += wind * d.drift;
+            } else {
+                rctx.beginPath();
+                rctx.moveTo(d.x, d.y);
+                rctx.lineTo(d.x + angle, d.y + d.l);
+                rctx.stroke();
+
+                d.y += d.s;
+                d.x += wind * 2;
+            }
+
+            if (
+                d.y > rainCanvas.height + rainSpawnPadding ||
+                d.x < -rainSpawnPadding * 2 ||
+                d.x > rainCanvas.width + rainSpawnPadding * 2
+            ) {
+                const newDrop = createDrop(isSnow);
+                d.x = Math.random() * (rainCanvas.width + rainSpawnPadding * 2) - rainSpawnPadding;
+                d.y = -Math.random() * rainSpawnPadding - (isSnow ? newDrop.r * 2 : newDrop.l);
+                d.l = newDrop.l;
+                d.s = newDrop.s;
+                d.r = newDrop.r;
+                d.drift = newDrop.drift;
+            }
+        }
+
+        const stormChance = !isSnow && currentWeather.rain > 2 && currentWeather.cloud > 90;
+
+        if (stormChance && Math.random() < 0.01) {
+            triggerLightning();
+        }
+    }
+
+    requestAnimationFrame(drawRain);
+}
 
 // =====================================================
 // DATA LOOP
 // =====================================================
 let currentWeather = null;
+let precipitationType = null;
 
 async function updateData() {
     if (MODE === "TEST") {
@@ -308,22 +611,65 @@ async function updateData() {
         currentWeather = await fetchWeather();
     }
 
+    const newPrecipitationType =
+        isSnowWeather(currentWeather) ? "snow" :
+        currentWeather.rain > 0.1 ? "rain" :
+        "none";
+
+    raining = currentWeather.rain > 0.1;
+
+    if (newPrecipitationType !== precipitationType) {
+        precipitationType = newPrecipitationType;
+        if (raining) initRain();
+        else drops = [];
+    } else if (raining && drops.length === 0) {
+        initRain();
+    }
+
+    updateCloudState(currentWeather);
+    updateFogState(currentWeather);
     renderVisual(currentWeather);
-    drawLightPollution(currentWeather);
 
     const debug = document.getElementById("debug");
 
     if (MODE === "TEST") {
+        const daylight = getDaylightFactor(currentWeather.hour ?? 12);
+
         debug.style.display = "block";
-        debug.textContent = JSON.stringify(currentWeather, null, 2);
+        debug.textContent =
+`${currentWeather.name}
+TEMP: ${currentWeather.temp}
+RAIN: ${currentWeather.rain}
+CLOUD: ${currentWeather.cloud}
+WIND: ${currentWeather.wind}
+HOUR: ${currentWeather.hour ?? 12}
+LIGHT: ${daylight.toFixed(2)}
+CLD: ${cloudState.density.toFixed(2)}
+FOG: ${fogState.density.toFixed(2)}`;
+    } else {
+        debug.style.display = "none";
     }
 }
 
 // =====================================================
+// CONTROLS
+// =====================================================
+addEventListener("keydown", e => {
+    if (MODE === "TEST") {
+        if (e.key === "ArrowRight") testIndex++;
+        if (e.key === "ArrowLeft") testIndex--;
+
+        testIndex = (testIndex + testStates.length) % testStates.length;
+        updateData();
+    }
+});
+
+// =====================================================
 // START
 // =====================================================
-setInterval(updateData, 60000);
+setInterval(updateData, MODE === "LIVE" ? 60000 : 999999);
 updateData();
+drawRain();
 
 </script>
 
