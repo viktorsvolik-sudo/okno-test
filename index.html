@@ -15,7 +15,6 @@ body {
     flex-direction: column;
 }
 
-/* ── SCENE ── */
 #scene {
     position: relative;
     width: 100%;
@@ -41,6 +40,7 @@ body {
     line-height: 1.9;
     text-shadow: 0 1px 4px rgba(0,0,0,0.7);
     pointer-events: none;
+    transition: opacity 0.4s;
 }
 
 #hud-name {
@@ -76,7 +76,6 @@ body {
     pointer-events: none;
 }
 
-/* ── PANEL ── */
 #panel {
     background: #111;
     padding: 14px 16px 16px;
@@ -109,7 +108,6 @@ body {
 #p-live, #p-test { display: none; }
 .p-on { display: block !important; }
 
-/* live panel */
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -178,7 +176,6 @@ body {
     line-height: 1.6;
 }
 
-/* test panel */
 .sl-row {
     display: flex;
     align-items: center;
@@ -238,6 +235,8 @@ body {
     <canvas id="c-rain"></canvas>
     <canvas id="c-fog"></canvas>
     <canvas id="c-lightning"></canvas>
+    <!-- light pollution canvas — above sky, below clouds -->
+    <canvas id="c-lp"></canvas>
 
     <div id="hud">
         <div id="hud-name">—</div>
@@ -292,35 +291,37 @@ body {
             <input type="range" id="sl-wind"  min="-1"  max="1"   step="0.05" value="0" oninput="sliderUpdate()">
             <span class="sl-val" id="sv-wind">0.00</span>
         </div>
+        <div class="sl-row">
+            <label>MLHA</label>
+            <input type="range" id="sl-vis"  min="0"  max="1"   step="1" value="0" oninput="sliderUpdate()">
+            <span class="sl-val" id="sv-vis">ne</span>
+        </div>
         <div id="presets"></div>
     </div>
 </div>
 
 <script>
-// ─────────────────────────────────────────────
-// KONFIGURACE
-// ─────────────────────────────────────────────
 const LAT = 50.1071;
 const LON = 14.4473;
 const SUNRISE = 6;
 const SUNSET  = 20;
 const TWILIGHT = 2;
 
+// Fog threshold: visibility < 1000 m counts as fog (Open-Meteo visibility in metres)
+const FOG_VISIBILITY_M = 1000;
+
 const PRESETS = [
-    { name:"VEDRO",     temp:35,  rain:0,   cloud:5,   wind:0,    hour:15 },
-    { name:"JASNO",     temp:28,  rain:0,   cloud:10,  wind:0.2,  hour:9  },
-    { name:"POLOJASNO", temp:24,  rain:0,   cloud:35,  wind:0.15, hour:16 },
-    { name:"JASNÁ NOC", temp:12,  rain:0,   cloud:0,   wind:0.1,  hour:1  },
-    { name:"OBLAČNO",   temp:16,  rain:0,   cloud:75,  wind:-0.5, hour:18 },
-    { name:"MLHA",      temp:4,   rain:0,   cloud:98,  wind:0,    hour:5  },
-    { name:"DÉŠŤ",      temp:14,  rain:0.5, cloud:85,  wind:0.8,  hour:13 },
-    { name:"BOUŘE",     temp:19,  rain:6,   cloud:100, wind:1,    hour:21 },
-    { name:"SNÍH",      temp:-3,  rain:0.7, cloud:100, wind:-0.3, hour:9  }
+    { name:"VEDRO",     temp:35,  rain:0,   cloud:5,   wind:0,    hour:15, fog:false },
+    { name:"JASNO",     temp:28,  rain:0,   cloud:10,  wind:0.2,  hour:9,  fog:false },
+    { name:"POLOJASNO", temp:24,  rain:0,   cloud:35,  wind:0.15, hour:16, fog:false },
+    { name:"JASNÁ NOC", temp:12,  rain:0,   cloud:0,   wind:0.1,  hour:1,  fog:false },
+    { name:"OBLAČNO",   temp:16,  rain:0,   cloud:75,  wind:-0.5, hour:18, fog:false },
+    { name:"MLHA",      temp:4,   rain:0,   cloud:98,  wind:0,    hour:5,  fog:true  },
+    { name:"DÉŠŤ",      temp:14,  rain:0.5, cloud:85,  wind:0.8,  hour:13, fog:false },
+    { name:"BOUŘE",     temp:19,  rain:6,   cloud:100, wind:1,    hour:21, fog:false },
+    { name:"SNÍH",      temp:-3,  rain:0.7, cloud:100, wind:-0.3, hour:9,  fog:false }
 ];
 
-// ─────────────────────────────────────────────
-// STAV
-// ─────────────────────────────────────────────
 let mode = 'live';
 let currentWeather = null;
 let drops = [], raining = false, precipType = null;
@@ -330,35 +331,31 @@ let fogState   = { density:0, wind:0 };
 let liveTimer  = null;
 let stars      = null;
 
-// ─────────────────────────────────────────────
-// CANVASY
-// ─────────────────────────────────────────────
 const scene = document.getElementById('scene');
 const CC = document.getElementById('c-clouds');
 const SC = document.getElementById('c-sun');
 const RC = document.getElementById('c-rain');
 const FC = document.getElementById('c-fog');
 const LC = document.getElementById('c-lightning');
+const LP = document.getElementById('c-lp');
 
 const cctx = CC.getContext('2d');
 const sctx = SC.getContext('2d');
 const rctx = RC.getContext('2d');
 const fctx = FC.getContext('2d');
 const lctx = LC.getContext('2d');
+const lpctx = LP.getContext('2d');
 
 function W() { return scene.clientWidth  || window.innerWidth;  }
 function H() { return scene.clientHeight || 480; }
 
 function resizeAll() {
-    [CC, SC, RC, FC, LC].forEach(c => { c.width = W(); c.height = H(); });
+    [CC, SC, RC, FC, LC, LP].forEach(c => { c.width = W(); c.height = H(); });
 }
 
 window.addEventListener('resize', () => { resizeAll(); stars = null; });
 resizeAll();
 
-// ─────────────────────────────────────────────
-// MATH HELPERS
-// ─────────────────────────────────────────────
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp  = (a, b, t) => a + (b - a) * t;
 
@@ -371,9 +368,6 @@ function getDL(hour) {
     return clamp(1 - (hour - ds) / (de - ds), 0, 1);
 }
 
-// ─────────────────────────────────────────────
-// BARVY POZADÍ
-// ─────────────────────────────────────────────
 function getBG(temp, cloud) {
     const b =
         temp >= 30 ? [250,153,35]  :
@@ -390,17 +384,17 @@ function applyLight(rgb, dl) {
     return rgb.map(c => Math.round(c * f));
 }
 
-// ─────────────────────────────────────────────
-// DETEKCE TYPU POČASÍ
-// ─────────────────────────────────────────────
+// ── FOG detection: requires explicit fog flag (from visibility or preset)
+// 100% cloud cover WITHOUT fog flag = thick overcast, NOT fog
 function isSnow(s) { return s.temp <= 0 || s.name === 'SNÍH'; }
-function isFog(s)  { return s.cloud >= 95 || s.name === 'MLHA'; }
+function isFog(s)  { return s.fog === true; }
 
-function guessName(temp, rain, cloud) {
+function guessName(temp, rain, cloud, fog) {
+    if (fog) return 'MLHA';
     if (temp <= 0 && rain > 0) return 'SNÍH';
     if (rain > 3  && cloud > 90) return 'BOUŘE';
     if (rain > 0.1) return 'DÉŠŤ';
-    if (cloud >= 95) return 'MLHA';
+    if (cloud >= 90 && !fog) return 'OBLAČNO';  // heavy overcast ≠ fog
     if (cloud > 70)  return 'OBLAČNO';
     if (cloud > 30)  return 'POLOJASNO';
     if (temp >= 30)  return 'VEDRO';
@@ -408,25 +402,79 @@ function guessName(temp, rain, cloud) {
 }
 
 // ─────────────────────────────────────────────
+// SVĚTELNÉ ZNEČIŠTĚNÍ
+// ─────────────────────────────────────────────
+function drawLightPollution(time) {
+    lpctx.clearRect(0, 0, W(), H());
+
+    if (!currentWeather) { requestAnimationFrame(drawLightPollution); return; }
+
+    const hour  = currentWeather.hour ?? 12;
+    const dl    = getDL(hour);
+    const cloud = currentWeather.cloud / 100;
+    const fog   = isFog(currentWeather) ? 1 : 0;
+
+    // Only visible at night / dusk — fade out during day
+    const nightT = clamp(1 - dl * 2.5, 0, 1);
+    if (nightT < 0.01) { requestAnimationFrame(drawLightPollution); return; }
+
+    // Clouds and fog reflect / scatter light — amplify with overcast
+    const scatter = lerp(0.55, 1.35, cloud * 0.8 + fog * 0.5);
+    const baseAlpha = nightT * scatter;
+
+    // Horizon glow — warm amber/orange-red typical of Prague city glow
+    const horizonY = H() * 0.78;
+
+    // Wide horizon band — desaturated warm grey-amber, not pure orange
+    const g1 = lpctx.createRadialGradient(W()*0.5, horizonY, 0, W()*0.5, horizonY, W()*0.72);
+    g1.addColorStop(0,   `rgba(210,155,100,${baseAlpha * 0.20})`);
+    g1.addColorStop(0.38,`rgba(185,130,85,${baseAlpha * 0.12})`);
+    g1.addColorStop(0.72,`rgba(155,110,75,${baseAlpha * 0.05})`);
+    g1.addColorStop(1,   'rgba(130,100,70,0)');
+    lpctx.fillStyle = g1;
+    lpctx.fillRect(0, 0, W(), H());
+
+    // Secondary taller column — diffuse pinkish-grey city glow
+    const g2 = lpctx.createRadialGradient(W()*0.5, H(), 0, W()*0.5, H(), H()*1.1);
+    g2.addColorStop(0,   `rgba(195,145,110,${baseAlpha * 0.15})`);
+    g2.addColorStop(0.4, `rgba(160,115,90,${baseAlpha * 0.08})`);
+    g2.addColorStop(1,   'rgba(130,95,75,0)');
+    lpctx.fillStyle = g2;
+    lpctx.fillRect(0, 0, W(), H());
+
+    // Slight violet-grey tint at upper sky (sodium lamp scattering)
+    const g3 = lpctx.createLinearGradient(0, H()*0.35, 0, H());
+    g3.addColorStop(0,   `rgba(70,55,75,0)`);
+    g3.addColorStop(0.6, `rgba(100,75,85,${baseAlpha * 0.05})`);
+    g3.addColorStop(1,   `rgba(130,100,80,${baseAlpha * 0.10})`);
+    lpctx.fillStyle = g3;
+    lpctx.fillRect(0, 0, W(), H());
+
+    requestAnimationFrame(drawLightPollution);
+}
+
+// ─────────────────────────────────────────────
 // RENDER VIZUÁLU
 // ─────────────────────────────────────────────
 function renderVisual(s) {
-    const fog  = s.cloud / 100;
+    const fog  = isFog(s);
+    const fogI = fog ? 1 : 0;
     const snow = isSnow(s);
     const dl   = getDL(s.hour ?? 12);
 
     let blur = 0;
-    if (s.rain > 0 && !isFog(s)) blur = 0.6;
+    if (s.rain > 0 && !fog) blur = 0.6;
     if (s.name === 'BOUŘE') blur = 1;
     if (snow) blur = Math.max(blur, 0.8);
+    if (fog)  blur = 2.5;
 
     let bc = getBG(s.temp, s.cloud);
     if (snow) bc = [Math.round(bc[0]*0.72), Math.round(bc[1]*0.76), Math.round(bc[2]*0.84)];
     const fc2 = applyLight(bc, dl);
     scene.style.background = `rgb(${fc2.join(',')})`;
 
-    const bri  = (snow ? lerp(0.52, 0.9, dl) : lerp(0.5, 1, dl)) - fog * 0.03;
-    const cont = 1 - fog * 0.03;
+    const bri  = (snow ? lerp(0.52, 0.9, dl) : lerp(0.5, 1, dl)) - fogI * 0.03;
+    const cont = 1 - fogI * 0.03;
     [CC, RC, FC, LC].forEach(c => {
         c.style.filter = `blur(${blur}px) brightness(${bri}) contrast(${cont})`;
     });
@@ -445,7 +493,6 @@ function drawSunMoon(time) {
     const dl    = getDL(hour);
     const cloud = currentWeather.cloud / 100;
 
-    // SUN ARC (6h = vlevo, 20h = vpravo)
     const sunT = clamp((hour - 6) / 14, 0, 1);
     const sunX = W() * 0.1 + W() * 0.8 * sunT;
     const sunY = H() * 0.55 - Math.sin(sunT * Math.PI) * H() * 0.48;
@@ -463,11 +510,9 @@ function drawSunMoon(time) {
         sctx.beginPath(); sctx.arc(sunX, sunY, 18, 0, Math.PI * 2); sctx.fill();
     }
 
-    // NIGHT: HVĚZDY + MĚSÍC
     if (dl < 0.15) {
         const nightT = 1 - dl / 0.15;
 
-        // hvězdy (inicializace jednou)
         if (!stars) {
             stars = [];
             for (let i = 0; i < 90; i++) {
@@ -480,13 +525,15 @@ function drawSunMoon(time) {
             }
         }
 
+        // Stars dimmed by light pollution (cloud scatter makes LP worse → fewer stars)
+        const lpDim = clamp(1 - cloud * 1.1, 0, 1);
+
         for (const [sx, sy, sr, sp] of stars) {
             const twinkle = 0.5 + Math.sin(time * 0.0011 * 1.3 + sp) * 0.5;
-            sctx.fillStyle = `rgba(255,255,255,${nightT * (0.25 + 0.55 * twinkle) * Math.max(0, 1 - cloud * 2.2)})`;
+            sctx.fillStyle = `rgba(255,255,255,${nightT * (0.25 + 0.55 * twinkle) * Math.max(0, 1 - cloud * 2.2) * lpDim})`;
             sctx.beginPath(); sctx.arc(sx, sy, sr, 0, Math.PI * 2); sctx.fill();
         }
 
-        // MĚSÍC – oblouk od 20h do 6h (přes půlnoc)
         const moonRaw = hour < 6 ? hour + 24 : hour;
         const moonT   = clamp((moonRaw - 20) / 14, 0, 1);
         const moonX   = W() * 0.08 + W() * 0.84 * moonT;
@@ -606,7 +653,8 @@ function initFog() {
 }
 
 function updateFogState(w) {
-    fogState.density = isFog(w) ? 1.35 : clamp((w.cloud - 52) / 32, 0, 0.85);
+    // Fog only when fog flag is set — NOT from cloud cover alone
+    fogState.density = isFog(w) ? 1.35 : clamp((w.cloud - 80) / 20, 0, 0.25);
     fogState.wind    = w.wind || 0;
 }
 
@@ -651,9 +699,7 @@ function drawFog(time) {
 function triggerLightning() {
     lctx.fillStyle = 'rgba(255,255,255,0.9)';
     lctx.fillRect(0, 0, W(), H());
-    setTimeout(() => {
-        lctx.clearRect(0, 0, W(), H());
-    }, 120);
+    setTimeout(() => { lctx.clearRect(0, 0, W(), H()); }, 120);
     setTimeout(() => {
         if (Math.random() > 0.5) {
             lctx.fillStyle = 'rgba(255,255,255,0.6)';
@@ -748,22 +794,31 @@ function applyWeather(w) {
     updateFogState(w);
     renderVisual(w);
 
-    // HUD
-    const hr  = Math.floor(w.hour ?? 0);
-    const mn  = Math.round(((w.hour ?? 0) - hr) * 60);
-    const dl  = getDL(w.hour ?? 12);
-    const tod = dl < 0.05 ? 'noc' : dl < 0.35 ? 'soumrak / svítání' : '';
+    // HUD: hide completely in live mode
+    const hudEl = document.getElementById('hud');
+    if (mode === 'live') {
+        hudEl.style.opacity = '0';
+        hudEl.style.pointerEvents = 'none';
+    } else {
+        hudEl.style.opacity = '1';
+        hudEl.style.pointerEvents = 'none';
 
-    const isLive = mode === 'live';
-    document.getElementById('hud-name').innerHTML =
-        (isLive ? '<span class="live-dot"></span>' : '') + w.name;
-    document.getElementById('hud-sub').textContent =
-        `${w.temp}°C  ·  ${String(hr).padStart(2,'0')}:${String(mn).padStart(2,'0')}` +
-        (tod ? '  ·  ' + tod : '');
+        const hr  = Math.floor(w.hour ?? 0);
+        const mn  = Math.round(((w.hour ?? 0) - hr) * 60);
+        const dl  = getDL(w.hour ?? 12);
+        const tod = dl < 0.05 ? 'noc' : dl < 0.35 ? 'soumrak / svítání' : '';
+
+        document.getElementById('hud-name').textContent = w.name;
+        document.getElementById('hud-sub').textContent =
+            `${w.temp}°C  ·  ${String(hr).padStart(2,'0')}:${String(mn).padStart(2,'0')}` +
+            (tod ? '  ·  ' + tod : '');
+    }
 }
 
 // ─────────────────────────────────────────────
 // LIVE — OPEN-METEO API
+// weathercode field used for fog detection (codes 45, 48 = fog/rime)
+// visibility field as fallback
 // ─────────────────────────────────────────────
 async function fetchAndRender() {
     const btn = document.getElementById('btn-refresh');
@@ -774,15 +829,21 @@ async function fetchAndRender() {
     try {
         const url = `https://api.open-meteo.com/v1/forecast` +
             `?latitude=${LAT}&longitude=${LON}` +
-            `&current=temperature_2m,precipitation,cloudcover,wind_speed_10m,wind_direction_10m`;
+            `&current=temperature_2m,precipitation,cloudcover,wind_speed_10m,wind_direction_10m,weathercode,visibility`;
 
         const res  = await fetch(url);
         const data = await res.json();
         const c    = data.current;
 
+        // Fog: weathercode 45 or 48 = fog / depositing rime fog
+        // Also treat very low visibility (< 1000 m) as fog
+        const weathercode = c.weathercode ?? 0;
+        const visibility  = c.visibility  ?? 99999;
+        const fog = (weathercode === 45 || weathercode === 48) || (visibility < FOG_VISIBILITY_M);
+
         const windSign = Math.sin(c.wind_direction_10m * Math.PI / 180);
         const hour     = new Date().getHours() + new Date().getMinutes() / 60;
-        const name     = guessName(c.temperature_2m, c.precipitation, c.cloudcover);
+        const name     = guessName(c.temperature_2m, c.precipitation, c.cloudcover, fog);
 
         document.getElementById('ls-temp').textContent  = c.temperature_2m.toFixed(1);
         document.getElementById('ls-rain').textContent  = c.precipitation.toFixed(1);
@@ -795,14 +856,15 @@ async function fetchAndRender() {
             rain:  c.precipitation,
             cloud: c.cloudcover,
             wind:  windSign,
-            hour
+            hour,
+            fog
         });
 
         btn.textContent = '↻ AKTUALIZOVAT';
 
     } catch (e) {
         console.error('Open-Meteo fetch failed:', e);
-        err.style.display = 'block';
+        document.getElementById('live-error').style.display = 'block';
         btn.textContent = '↻ AKTUALIZOVAT';
     }
 }
@@ -816,6 +878,7 @@ function sliderUpdate() {
     const cloud = parseInt(document.getElementById('sl-cloud').value);
     const rain  = parseFloat(document.getElementById('sl-rain').value);
     const wind  = parseFloat(document.getElementById('sl-wind').value);
+    const fog   = parseInt(document.getElementById('sl-vis').value) === 1;
 
     const hr = Math.floor(hour);
     const mn = Math.round((hour - hr) * 60);
@@ -824,14 +887,15 @@ function sliderUpdate() {
     document.getElementById('sv-cloud').textContent = `${cloud}%`;
     document.getElementById('sv-rain').textContent  = `${rain.toFixed(1)} mm`;
     document.getElementById('sv-wind').textContent  = wind.toFixed(2);
+    document.getElementById('sv-vis').textContent   = fog ? 'ano' : 'ne';
 
     document.querySelectorAll('.p-btn').forEach(b => b.classList.remove('on'));
 
-    applyWeather({ name: guessName(temp, rain, cloud), temp, rain, cloud, wind, hour });
+    applyWeather({ name: guessName(temp, rain, cloud, fog), temp, rain, cloud, wind, hour, fog });
 }
 
 // ─────────────────────────────────────────────
-// PŘEPÍNÁNÍ ZÁLOŽEK
+// ZÁLOŽKY
 // ─────────────────────────────────────────────
 function switchTab(t) {
     mode = t;
@@ -851,7 +915,7 @@ function switchTab(t) {
 }
 
 // ─────────────────────────────────────────────
-// PŘEDVOLBY (PRESETS)
+// PŘEDVOLBY
 // ─────────────────────────────────────────────
 const presetsEl = document.getElementById('presets');
 PRESETS.forEach(p => {
@@ -866,15 +930,13 @@ PRESETS.forEach(p => {
         document.getElementById('sl-cloud').value = p.cloud;
         document.getElementById('sl-rain').value  = p.rain;
         document.getElementById('sl-wind').value  = p.wind;
+        document.getElementById('sl-vis').value   = p.fog ? 1 : 0;
         sliderUpdate();
         b.classList.add('on');
     };
     presetsEl.appendChild(b);
 });
 
-// ─────────────────────────────────────────────
-// KLÁVESNICE (TEST: šipky)
-// ─────────────────────────────────────────────
 document.addEventListener('keydown', e => {
     if (mode !== 'test') return;
     const btns = [...document.querySelectorAll('.p-btn')];
@@ -894,9 +956,9 @@ initFog();
 requestAnimationFrame(drawClouds);
 requestAnimationFrame(drawFog);
 requestAnimationFrame(drawSunMoon);
+requestAnimationFrame(drawLightPollution);
 drawRain();
 
-// Načti live data hned při startu
 fetchAndRender();
 liveTimer = setInterval(fetchAndRender, 60000);
 </script>
