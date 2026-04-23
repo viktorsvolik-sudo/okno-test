@@ -184,8 +184,22 @@ body {
 const LAT = 50.1071, LON = 14.4473;
 const VIEW_AZIMUTH = 0;
 const SUNRISE = 6, SUNSET = 20, TWILIGHT = 2;
-const TARGET_FPS = 30;
-const FRAME_MS   = 1000 / TARGET_FPS;
+
+// ── Raspi / low-end detection ──────────────────────────────────────────────
+// Heuristika: ARM CPU nebo méně než 4 logická jádra = považujeme za Raspi
+const IS_LOWEND = (
+    /arm|aarch64/i.test(navigator.userAgent) ||
+    navigator.hardwareConcurrency <= 3 ||
+    (navigator.userAgentData?.platform ?? '').toLowerCase().includes('arm')
+);
+const TARGET_FPS  = IS_LOWEND ? 22 : 30;
+const NUM_CLOUDS  = IS_LOWEND ? 4  : 7;
+const NUM_FOG     = IS_LOWEND ? 16 : 32;
+const FRAME_MS    = 1000 / TARGET_FPS;
+// Raspi: canvas v poloviční pixel-density aby GPU neutonulo
+const PIXEL_SCALE = IS_LOWEND ? Math.min(window.devicePixelRatio || 1, 1) : (window.devicePixelRatio || 1);
+if (IS_LOWEND) console.info('[weather] low-end mode, fps=' + TARGET_FPS);
+// ───────────────────────────────────────────────────────────────────────────
 
 function rainLevel(mm) {
     if (mm <= 0.1)  return 0;
@@ -217,6 +231,23 @@ const PRESETS = [
 let W = {};
 let raining = false, precipType = null;
 
+// roundRect polyfill pro starší Chromium (Raspbian Buster/Bullseye)
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        const rad = Math.min(r, w / 2, h / 2);
+        this.moveTo(x + rad, y);
+        this.lineTo(x + w - rad, y);
+        this.arcTo(x + w, y, x + w, y + rad, rad);
+        this.lineTo(x + w, y + h - rad);
+        this.arcTo(x + w, y + h, x + w - rad, y + h, rad);
+        this.lineTo(x + rad, y + h);
+        this.arcTo(x, y + h, x, y + h - rad, rad);
+        this.lineTo(x, y + rad);
+        this.arcTo(x, y, x + rad, y, rad);
+        this.closePath();
+    };
+}
+
 const sceneEl = document.getElementById('scene');
 const canvas  = document.getElementById('c-main');
 const ctx     = canvas.getContext('2d', {
@@ -231,15 +262,22 @@ let rasterPattern = null;
 function resize() {
     CW = sceneEl.clientWidth;
     CH = sceneEl.clientHeight || window.innerHeight - document.getElementById('panel').offsetHeight;
-    canvas.width  = CW;
-    canvas.height = CH;
+    canvas.width  = Math.round(CW * PIXEL_SCALE);
+    canvas.height = Math.round(CH * PIXEL_SCALE);
+    canvas.style.width  = CW + 'px';
+    canvas.style.height = CH + 'px';
+    if (PIXEL_SCALE !== 1) ctx.setTransform(PIXEL_SCALE, 0, 0, PIXEL_SCALE, 0, 0);
     invalidateGradientCache();
     initStars();
     rebuildCloudCache();
     rebuildRasterPattern();
 }
 
-window.addEventListener('resize', resize);
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(resize, IS_LOWEND ? 400 : 120);
+});
 setTimeout(resize, 50);
 
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
@@ -447,7 +485,6 @@ function guessName(temp, rain, cloud, weatherCode) {
     return 'JASNO';
 }
 
-const NUM_CLOUDS = 7;
 let cloudBands = [];
 let cloudOSC   = null;
 let cloudCacheValid = false;
@@ -594,7 +631,6 @@ function drawClouds(t) {
     }
 }
 
-const NUM_FOG = 32;
 let fogPuffs = [];
 let fogOSC   = {};
 
@@ -772,35 +808,39 @@ function drawSmog(t, dl, cloud) {
     const pulse = .94+Math.sin(t*.14)*.06;
     const bandH = Math.round(CH*.5);
     const g = ctx.createLinearGradient(0,CH-bandH,0,CH);
-    g.addColorStop(0,   `rgba(255,224,170,0)`);
-    g.addColorStop(.38, `rgba(255,214,156,${intens*pulse*.07})`);
-    g.addColorStop(.72, `rgba(255,204,144,${intens*pulse*.13})`);
-    g.addColorStop(1,   `rgba(255,196,136,${intens*pulse*.17})`);
+    g.addColorStop(0,   `rgba(248,230,120,0)`);
+    g.addColorStop(.38, `rgba(252,226,80,${intens*pulse*.07})`);
+    g.addColorStop(.72, `rgba(255,220,60,${intens*pulse*.13})`);
+    g.addColorStop(1,   `rgba(255,212,40,${intens*pulse*.17})`);
     ctx.fillStyle = g;
     ctx.fillRect(0,CH-bandH,CW,bandH);
 
     const bloom = ctx.createRadialGradient(CW * 0.5, CH * 0.96, CH * 0.04, CW * 0.5, CH * 0.96, CH * 0.62);
-    bloom.addColorStop(0, `rgba(255,216,158,${intens * 0.09})`);
-    bloom.addColorStop(0.58, `rgba(255,206,148,${intens * 0.045})`);
-    bloom.addColorStop(1, 'rgba(255,196,140,0)');
+    bloom.addColorStop(0, `rgba(255,228,80,${intens * 0.09})`);
+    bloom.addColorStop(0.58, `rgba(255,218,60,${intens * 0.045})`);
+    bloom.addColorStop(1, 'rgba(255,210,40,0)');
     ctx.fillStyle = bloom;
     ctx.fillRect(0, CH * 0.4, CW, CH * 0.6);
 
-    const shimmer = 0.5 + 0.5 * Math.sin(t * 0.9);
-    for (let i = 0; i < 4; i++) {
-        const px = CW * (0.14 + i * 0.24 + Math.sin(t * (0.11 + i * 0.03)) * 0.015);
-        const py = CH * (0.88 + Math.cos(t * (0.18 + i * 0.02)) * 0.02);
-        const pr = CH * (0.08 + i * 0.018);
-        const glow = ctx.createRadialGradient(px, py, 1, px, py, pr);
-        const a = intens * (0.018 + i * 0.007) * (0.72 + shimmer * 0.28);
-        glow.addColorStop(0, `rgba(255,242,214,${a})`);
-        glow.addColorStop(0.5, `rgba(255,224,180,${a * 0.45})`);
-        glow.addColorStop(1, 'rgba(255,214,170,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(px, py, pr, 0, Math.PI * 2);
-        ctx.fill();
+    // raspi: shimmer blooms přeskočíme každý druhý frame
+    if (!window._smogSkip) {
+        const shimmer = 0.5 + 0.5 * Math.sin(t * 0.9);
+        for (let i = 0; i < 4; i++) {
+            const px = CW * (0.14 + i * 0.24 + Math.sin(t * (0.11 + i * 0.03)) * 0.015);
+            const py = CH * (0.88 + Math.cos(t * (0.18 + i * 0.02)) * 0.02);
+            const pr = CH * (0.08 + i * 0.018);
+            const glow = ctx.createRadialGradient(px, py, 1, px, py, pr);
+            const a = intens * (0.018 + i * 0.007) * (0.72 + shimmer * 0.28);
+            glow.addColorStop(0, `rgba(255,244,160,${a})`);
+            glow.addColorStop(0.5, `rgba(255,230,80,${a * 0.45})`);
+            glow.addColorStop(1, 'rgba(255,220,40,0)');
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(px, py, pr, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
+    window._smogSkip = !window._smogSkip;
 }
 
 let starsList = [];
@@ -901,7 +941,7 @@ function drawSunMoon(t, dl, cloud, hour) {
     }
 }
 
-const NUM_DROPS = 400;
+const NUM_DROPS = IS_LOWEND ? 220 : 400;
 let drops = [];
 
 function createDrop(snow, lvl) {
@@ -934,15 +974,17 @@ function drawRain() {
 
     const wind  = W.wind||0;
     const angle = wind*8;
-    const alpha = snow ? .85 : RAIN_ALPHA[lvl];
+    const alpha = snow ? .85 : RAIN_ALPHA[lvl] * 0.72; // nevýrazněji
     const lw    = snow ? 1   : RAIN_WIDTH[lvl];
 
     if (snow) {
         ctx.fillStyle = `rgba(238,242,245,${alpha})`;
     } else {
-        const r = lvl<=2 ? 146 : 118;
-        const g = lvl<=2 ? 158 : 132;
-        const b = lvl<=2 ? 170 : 146;
+        const r = lvl<=2 ? 160 : 130;
+        const g = lvl<=2 ? 170 : 142;
+        const b = lvl<=2 ? 185 : 158;
+        // jemný blur — pouze pro déšť, ne sníh, ne Raspi
+        if (!IS_LOWEND) ctx.filter = `blur(${lvl <= 2 ? 0.6 : 0.9}px)`;
         ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
         ctx.lineWidth   = lw;
         ctx.beginPath();
@@ -977,13 +1019,18 @@ function drawRain() {
             d.l=nd.l; d.s=nd.s; d.r=nd.r; d.dr=nd.dr; d.rot=nd.rot; d.rotSp=nd.rotSp; d.rough=nd.rough;
         }
     }
-    if (!snow) ctx.stroke();
+    if (!snow) {
+        ctx.stroke();
+        ctx.filter = 'none';
+    }
 
     if (lvl===4 && !snow) {
-        ctx.fillStyle='rgba(160,175,190,0.06)';
+        ctx.fillStyle='rgba(155,168,182,0.045)';
         ctx.fillRect(0,0,CW,CH);
     }
 }
+
+function updateRainDrops() {} // pohyb řeší drawRain přímo
 
 let lightAlpha=0, lightTimer=0, lightPhase=0;
 
@@ -1043,6 +1090,7 @@ function frame(now) {
     drawClouds(t);
     drawSmog(t, dl, cloud);
     drawFog(t);
+    updateRainDrops();
     drawRain();
 
     if (raining && !isSnow(W) && W.rain>2 && cloud>90 && Math.random()<.008)
