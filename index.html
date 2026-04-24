@@ -15,7 +15,6 @@ body {
     flex-direction: column;
 }
 
-/* ── SCENE ── */
 #scene {
     position: relative;
     width: 100%;
@@ -30,7 +29,6 @@ body {
     image-rendering: auto;
 }
 
-/* ── HUD — pouze v test módu ── */
 #hud {
     position: absolute;
     top: 14px; left: 16px;
@@ -59,7 +57,6 @@ body {
     display: none;
 }
 
-/* ── Hint pro přepnutí (live mód, zmizí po 4s) ── */
 #hint {
     position: absolute;
     bottom: 18px; left: 50%;
@@ -71,7 +68,6 @@ body {
     transition: opacity 1s;
 }
 
-/* ── FPS (test mód) ── */
 #fps {
     position: absolute; bottom: 4px; right: 8px;
     font-size: 9px; color: rgba(255,255,255,0.22);
@@ -79,7 +75,6 @@ body {
     display: none;
 }
 
-/* ── PANEL — pouze v test módu ── */
 #panel {
     background: #111;
     padding: 14px 16px 16px;
@@ -185,8 +180,6 @@ const LAT = 50.1071, LON = 14.4473;
 const VIEW_AZIMUTH = 0;
 const SUNRISE = 6, SUNSET = 20, TWILIGHT = 2;
 
-// ── Raspi / low-end detection ──────────────────────────────────────────────
-// Heuristika: ARM CPU nebo méně než 4 logická jádra = považujeme za Raspi
 const IS_LOWEND = (
     /arm|aarch64/i.test(navigator.userAgent) ||
     navigator.hardwareConcurrency <= 3 ||
@@ -196,10 +189,8 @@ const TARGET_FPS  = IS_LOWEND ? 22 : 30;
 const NUM_CLOUDS  = IS_LOWEND ? 4  : 7;
 const NUM_FOG     = IS_LOWEND ? 16 : 32;
 const FRAME_MS    = 1000 / TARGET_FPS;
-// Raspi: canvas v poloviční pixel-density aby GPU neutonulo
 const PIXEL_SCALE = IS_LOWEND ? Math.min(window.devicePixelRatio || 1, 1) : (window.devicePixelRatio || 1);
 if (IS_LOWEND) console.info('[weather] low-end mode, fps=' + TARGET_FPS);
-// ───────────────────────────────────────────────────────────────────────────
 
 function rainLevel(mm) {
     if (mm <= 0.1)  return 0;
@@ -211,8 +202,10 @@ function rainLevel(mm) {
 const RAIN_DROPS   = [0, 120, 280, 450, 650];
 const RAIN_LEN     = [0, 9,  20,  32,  42 ];
 const RAIN_SPEED   = [0, [1.5,4], [3,9], [6,14], [9,18]];
-const RAIN_ALPHA   = [0, .45, .65, .80, .92];
-const RAIN_WIDTH   = [0, 1,   1.5, 2,   2  ];
+// ── Soft rain: reduced alpha, gentle blur ──
+const RAIN_ALPHA   = [0, .20, .28, .36, .44];
+const RAIN_WIDTH   = [0, 0.7, 1.0, 1.3, 1.5];
+const RAIN_BLUR    = [0, 0.5, 0.8, 1.1, 1.4];
 
 const PRESETS = [
     { name:"VEDRO",      temp:35,  rain:0,    cloud:5,   wind:0,    hour:15 },
@@ -231,7 +224,6 @@ const PRESETS = [
 let W = {};
 let raining = false, precipType = null;
 
-// roundRect polyfill pro starší Chromium (Raspbian Buster/Bullseye)
 if (!CanvasRenderingContext2D.prototype.roundRect) {
     CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
         const rad = Math.min(r, w / 2, h / 2);
@@ -314,11 +306,7 @@ function getSunTiming() {
     const dawnLen = clamp(0.95 + (14 - daylightSpan) * 0.06, 0.85, 1.45);
     const duskLen = clamp(1.15 + (14 - daylightSpan) * 0.09, 1.0, 1.75);
     return {
-        sunrise,
-        sunset,
-        daylightSpan,
-        dawnLen,
-        duskLen,
+        sunrise, sunset, daylightSpan, dawnLen, duskLen,
         dawnStart: sunrise - dawnLen,
         duskEnd: sunset + duskLen
     };
@@ -328,7 +316,6 @@ function getDL(h) {
     const sun = getSunTiming();
     const morningLiftEnd = sun.sunrise + 0.85;
     const eveningFallStart = sun.sunset - 0.7;
-
     if (h < sun.dawnStart || h >= sun.duskEnd) return 0;
     if (h < sun.sunrise) return lerp(0, 0.16, smoothstep(sun.dawnStart, sun.sunrise, h));
     if (h < morningLiftEnd) return lerp(0.16, 1, smoothstep(sun.sunrise, morningLiftEnd, h));
@@ -341,7 +328,6 @@ function getTwilightInfo(hour, cloud = 0) {
     const sun = getSunTiming();
     let center = null;
     let phase = 'none';
-
     if (hour >= sun.dawnStart && hour <= sun.sunrise + 0.55) {
         center = sun.sunrise - sun.dawnLen * 0.15;
         phase = 'sunrise';
@@ -349,9 +335,7 @@ function getTwilightInfo(hour, cloud = 0) {
         center = sun.sunset + sun.duskLen * 0.2;
         phase = 'sunset';
     }
-
     if (center == null) return { intensity: 0, phase };
-
     const windowH = phase === 'sunrise' ? sun.dawnLen * 0.95 : sun.duskLen * 1.05;
     const base = 1 - Math.abs(hour - center) / windowH;
     const cloudFactor = cloud < 12
@@ -359,11 +343,7 @@ function getTwilightInfo(hour, cloud = 0) {
         : cloud < 65
             ? lerp(0.78, 1.08, (cloud - 12) / 53)
             : lerp(1.08, 0.82, Math.min(cloud - 65, 35) / 35);
-
-    return {
-        intensity: clamp(base * cloudFactor, 0, 1),
-        phase
-    };
+    return { intensity: clamp(base * cloudFactor, 0, 1), phase };
 }
 
 function getBG(temp, cloud) {
@@ -589,7 +569,6 @@ function initClouds() {
 
 function drawClouds(t) {
     if (cDensity<=0.02) return;
-
     const shade = Math.round(lerp(246,202,cStorm)*lerp(0.72,1,cDL));
     ensureCloudCache(shade);
 
@@ -600,10 +579,8 @@ function drawClouds(t) {
     for (const b of cloudBands) {
         b.x += b.speed + wp*(1+b.layer*.18);
         b.y += b.dY + Math.sin(t*.08+b.wobble)*.015;
-
         if (b.x-b.w>CW+300) { b.x=-b.w-Math.random()*260; b.y=CH*(0.2+b.layer*.14)+Math.random()*CH*.14; }
         if (b.x+b.w<-320)   { b.x=CW+b.w+Math.random()*260; b.y=CH*(0.2+b.layer*.14)+Math.random()*CH*.14; }
-
         const pulse  = .95+Math.sin(t*(.06+b.layer*.015)+b.wobble)*.04;
         const alpha  = clamp(cDensity*alphaScale*(0.24+b.layer*.05)*pulse, 0, .58);
         const width  = b.w * coverScale;
@@ -612,13 +589,8 @@ function drawClouds(t) {
             ? clamp(1 - (b.x + width * 0.2) / (CW * 0.34), 0, 1)
             : 0;
         const drawY = b.y + leftCornerPull * CH * 0.12;
-
         ctx.globalAlpha = alpha;
-        ctx.drawImage(
-            cloudOSC,
-            b.x - width * 0.52, drawY - height * 0.52,
-            width * 1.04, height * 1.04
-        );
+        ctx.drawImage(cloudOSC, b.x - width * 0.52, drawY - height * 0.52, width * 1.04, height * 1.04);
         ctx.globalAlpha = 1;
     }
 
@@ -663,34 +635,27 @@ function rebuildRasterPattern() {
 
 function ensureRasterPattern() {
     if (rasterPattern) return;
-
     rasterOSC = createBufferCanvas(8, 8);
     const rc = rasterOSC.getContext('2d');
     rc.clearRect(0, 0, 8, 8);
-
     rc.fillStyle = 'rgba(255,255,255,0.052)';
     rc.fillRect(0, 0, 1, 1);
     rc.fillRect(4, 4, 1, 1);
-
     rc.fillStyle = 'rgba(255,255,255,0.032)';
     rc.fillRect(0, 4, 1, 1);
     rc.fillRect(4, 0, 1, 1);
-
     rc.fillStyle = 'rgba(255,255,255,0.04)';
     rc.fillRect(0, 0, 8, 1);
     rc.fillRect(0, 0, 1, 8);
-
     rc.fillStyle = 'rgba(0,0,0,0.028)';
     rc.fillRect(2, 2, 1, 1);
     rc.fillRect(6, 6, 1, 1);
-
     rasterPattern = ctx.createPattern(rasterOSC, 'repeat');
 }
 
 function drawRasterFilter(dl) {
     ensureRasterPattern();
     if (!rasterPattern) return;
-
     const alpha = lerp(0.082, 0.054, dl);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = rasterPattern;
@@ -720,26 +685,21 @@ function drawFog(t) {
     if (fDensity<=0.01) return;
     const bo  = fDensity*.62;
     const wp  = fWind*.42;
-
     for (const p of fogPuffs) {
         p.x += p.sp*1.35 + wp*(1+p.layer*.45);
         p.y += p.dY*1.4  + Math.sin(t*.42+p.wb)*.08;
-
         if (p.x-p.r>CW+80)    { p.x=-p.r-Math.random()*120; p.y=Math.random()*CH; }
         if (p.x+p.r<-120)     { p.x=CW+p.r+Math.random()*120; p.y=Math.random()*CH; }
         if (p.y<-p.r)           p.y=CH+p.r;
         if (p.y>CH+p.r)         p.y=-p.r;
-
         const pulse = .84+Math.sin(t*(.42+p.layer*.1)+p.wb)*.18;
         const alpha = p.bA*bo*pulse;
         if (alpha<.008) continue;
-
         const osc = getFogCircle(p.r);
         ctx.globalAlpha = alpha;
         ctx.drawImage(osc, Math.round(p.x-p.r), Math.round(p.y-p.r));
         ctx.globalAlpha = 1;
     }
-
     const lowFog = ctx.createLinearGradient(0, CH * 0.15, 0, CH);
     lowFog.addColorStop(0, `rgba(234,236,238,${bo*.04})`);
     lowFog.addColorStop(0.55, `rgba(232,234,236,${bo*.18})`);
@@ -751,20 +711,17 @@ function drawFog(t) {
 function drawTwilightTint(hour, cloud) {
     const twilight = getTwilightInfo(hour, cloud);
     if (twilight.intensity <= 0.01) return;
-
     const isSunset = twilight.phase === 'sunset';
     const horizonY = CH * (isSunset ? 0.8 : 0.76);
     const cx = CW * (isSunset ? 0.2 : 0.8);
     const warm = isSunset ? [255, 164, 122] : [255, 188, 138];
     const rose = isSunset ? [255, 132, 146] : [255, 170, 150];
-
     const horizonGlow = ctx.createRadialGradient(cx, horizonY, 16, cx, horizonY, CH * 0.52);
     horizonGlow.addColorStop(0, `rgba(${warm[0]},${warm[1]},${warm[2]},${twilight.intensity * 0.18})`);
     horizonGlow.addColorStop(0.46, `rgba(${rose[0]},${rose[1]},${rose[2]},${twilight.intensity * 0.1})`);
     horizonGlow.addColorStop(1, `rgba(${rose[0]},${rose[1]},${rose[2]},0)`);
     ctx.fillStyle = horizonGlow;
     ctx.fillRect(0, CH * 0.18, CW, CH * 0.82);
-
     const skyWash = ctx.createLinearGradient(0, CH * 0.1, 0, CH);
     skyWash.addColorStop(0, 'rgba(255,170,150,0)');
     skyWash.addColorStop(0.55, `rgba(${warm[0]},${warm[1]},${warm[2]},${twilight.intensity * 0.035})`);
@@ -778,19 +735,16 @@ function drawSkyBackdrop(fc, dl, cloud, hour) {
     const zenith = mixRgb(fc, [Math.max(0, fc[0] - 14), Math.max(0, fc[1] - 8), Math.max(0, fc[2] - 2)], lerp(0.16, 0.28, dl));
     const horizonBase = mixRgb(fc, [236, 239, 246], clamp(0.22 + cloud / 100 * 0.22, 0.18, 0.46));
     let horizon = horizonBase;
-
     if (twilight.intensity > 0.01) {
         const tint = twilight.phase === 'sunset' ? [255, 186, 150] : [255, 202, 168];
         horizon = mixRgb(horizon, tint, twilight.intensity * 0.32);
     }
-
     const g = ctx.createLinearGradient(0, 0, 0, CH);
     g.addColorStop(0, `rgb(${zenith.join(',')})`);
     g.addColorStop(0.48, `rgb(${fc.join(',')})`);
     g.addColorStop(1, `rgb(${horizon.join(',')})`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, CW, CH);
-
     const lowerAtmos = ctx.createLinearGradient(0, CH * 0.52, 0, CH);
     lowerAtmos.addColorStop(0, 'rgba(255,255,255,0)');
     lowerAtmos.addColorStop(0.72, `rgba(255,255,255,${lerp(0.03, 0.09, 1 - dl)})`);
@@ -804,7 +758,6 @@ function drawSmog(t, dl, cloud) {
     const boost  = clamp(cloud/100*.52,0,.52);
     const intens = nightF*(.42+boost);
     if (intens<.01) return;
-
     const pulse = .94+Math.sin(t*.14)*.06;
     const bandH = Math.round(CH*.5);
     const g = ctx.createLinearGradient(0,CH-bandH,0,CH);
@@ -814,15 +767,12 @@ function drawSmog(t, dl, cloud) {
     g.addColorStop(1,   `rgba(255,212,40,${intens*pulse*.17})`);
     ctx.fillStyle = g;
     ctx.fillRect(0,CH-bandH,CW,bandH);
-
     const bloom = ctx.createRadialGradient(CW * 0.5, CH * 0.96, CH * 0.04, CW * 0.5, CH * 0.96, CH * 0.62);
     bloom.addColorStop(0, `rgba(255,228,80,${intens * 0.09})`);
     bloom.addColorStop(0.58, `rgba(255,218,60,${intens * 0.045})`);
     bloom.addColorStop(1, 'rgba(255,210,40,0)');
     ctx.fillStyle = bloom;
     ctx.fillRect(0, CH * 0.4, CW, CH * 0.6);
-
-    // raspi: shimmer blooms přeskočíme každý druhý frame
     if (!window._smogSkip) {
         const shimmer = 0.5 + 0.5 * Math.sin(t * 0.9);
         for (let i = 0; i < 4; i++) {
@@ -861,7 +811,6 @@ function drawStars(t, dl, cloud) {
     const nightT = 1-dl/.15;
     const vis    = Math.max(0, 1-cloud/100*2.4);
     if (vis<.01) return;
-
     for (const [sx,sy,sr,sp] of starsList) {
         const twinkle = .5+Math.sin(t*1.3+sp)*.5;
         const a = nightT*(.14+.38*twinkle)*vis;
@@ -896,7 +845,6 @@ function drawSunMoon(t, dl, cloud, hour) {
         const outerR = lerp(150, 176, heat);
         const midR = lerp(94, 112, heat);
         const coreR = lerp(8, 10, heat);
-
         const gOuter = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, outerR);
         gOuter.addColorStop(0, `rgba(255,244,204,${op * lerp(0.1, 0.14, heat)})`);
         gOuter.addColorStop(0.24, `rgba(255,236,176,${op * lerp(0.06, 0.1, heat)})`);
@@ -904,7 +852,6 @@ function drawSunMoon(t, dl, cloud, hour) {
         gOuter.addColorStop(1, 'rgba(255,220,120,0)');
         ctx.fillStyle = gOuter;
         ctx.beginPath(); ctx.arc(sunX, sunY, outerR, 0, Math.PI * 2); ctx.fill();
-
         const gMid = ctx.createRadialGradient(sunX, sunY, 1, sunX, sunY, midR);
         gMid.addColorStop(0, `rgba(255,246,220,${op * lerp(0.2, 0.28, heat)})`);
         gMid.addColorStop(0.22, `rgba(255,241,196,${op * lerp(0.14, 0.2, heat)})`);
@@ -912,7 +859,6 @@ function drawSunMoon(t, dl, cloud, hour) {
         gMid.addColorStop(1, 'rgba(255,214,110,0)');
         ctx.fillStyle = gMid;
         ctx.beginPath(); ctx.arc(sunX, sunY, midR, 0, Math.PI * 2); ctx.fill();
-
         ctx.fillStyle = `rgba(255,242,186,${op * lerp(0.24, 0.32, heat)})`;
         ctx.beginPath();
         ctx.ellipse(sunX, sunY, coreR * 1.25, coreR * 0.95, 0.12, 0, Math.PI * 2);
@@ -920,15 +866,13 @@ function drawSunMoon(t, dl, cloud, hour) {
     }
 
     if (dl<.15) {
-        const nightT = 1-dl/.15;
         drawStars(t, dl, cloud);
-
         const moonRaw = hour<6?hour+24:hour;
         const moonT   = clamp((moonRaw-20)/14,0,1);
         const moonX   = CW*.08+CW*.84*moonT;
         const moonY   = CH*.58-Math.sin(moonT*Math.PI)*CH*.45;
+        const nightT  = 1-dl/.15;
         const moonOp  = nightT*Math.max(0,1-cf*1.6)*.9;
-
         if (moonOp>.02) {
             const mg = ctx.createRadialGradient(moonX,moonY,3,moonX,moonY,30);
             mg.addColorStop(0,`rgba(220,235,255,${moonOp*.45})`);
@@ -955,7 +899,9 @@ function createDrop(snow, lvl) {
         dr: snow ? Math.random()*.9+.25 : 0,
         rot: snow ? Math.random() * Math.PI * 2 : 0,
         rotSp: snow ? (Math.random() - 0.5) * 0.08 : 0,
-        rough: snow ? Math.random() * 0.9 + 0.35 : 0
+        rough: snow ? Math.random() * 0.9 + 0.35 : 0,
+        // ── per-drop opacity variation for a natural streaky look ──
+        opVar: 0.55 + Math.random() * 0.45
     };
 }
 
@@ -967,32 +913,56 @@ function initRain() {
     for (let i=0; i<count; i++) drops.push(createDrop(snow, lvl));
 }
 
+// ── Rain drop canvas for soft blurred rendering ──────────────────────────────
+let rainDropOSC = {};
+function getRainDropCanvas(lvl) {
+    if (rainDropOSC[lvl]) return rainDropOSC[lvl];
+    const len = RAIN_LEN[lvl] * 1.4 + 8;
+    const w   = Math.ceil(RAIN_WIDTH[lvl] * 3 + 6);
+    const osc = createBufferCanvas(w, Math.ceil(len + 8));
+    const oc  = osc.getContext('2d');
+    oc.clearRect(0, 0, w, Math.ceil(len + 8));
+
+    // Draw a soft streak using radial gradient centered on the line
+    const cx = w / 2;
+    const r  = RAIN_WIDTH[lvl] * 1.5;
+    const g  = oc.createLinearGradient(cx, 4, cx, len + 4);
+    const col = lvl <= 2 ? '185,198,215' : '172,186,205';
+    g.addColorStop(0,   `rgba(${col},0)`);
+    g.addColorStop(0.12, `rgba(${col},0.7)`);
+    g.addColorStop(0.55, `rgba(${col},0.55)`);
+    g.addColorStop(1,   `rgba(${col},0)`);
+    oc.strokeStyle = `rgba(${col},0.9)`;
+    oc.lineWidth   = RAIN_WIDTH[lvl];
+    oc.lineCap     = 'round';
+
+    // Apply blur to the offscreen context
+    oc.filter = `blur(${RAIN_BLUR[lvl]}px)`;
+    oc.beginPath();
+    oc.moveTo(cx, 4);
+    oc.lineTo(cx, len + 4);
+    oc.stroke();
+    oc.filter = 'none';
+
+    rainDropOSC[lvl] = osc;
+    return osc;
+}
+
 function drawRain() {
     const snow = isSnow(W);
     const lvl  = snow ? 2 : rainLevel(W.rain||0);
     if (!raining || !drops.length || lvl===0) return;
 
     const wind  = W.wind||0;
-    const angle = wind*8;
-    const alpha = snow ? .85 : RAIN_ALPHA[lvl] * 0.72; // nevýrazněji
-    const lw    = snow ? 1   : RAIN_WIDTH[lvl];
+    const angle = wind * 8;
+    const baseAlpha = RAIN_ALPHA[lvl];
 
     if (snow) {
-        ctx.fillStyle = `rgba(238,242,245,${alpha})`;
-    } else {
-        const r = lvl<=2 ? 160 : 130;
-        const g = lvl<=2 ? 170 : 142;
-        const b = lvl<=2 ? 185 : 158;
-        // jemný blur — pouze pro déšť, ne sníh, ne Raspi
-        if (!IS_LOWEND) ctx.filter = `blur(${lvl <= 2 ? 0.6 : 0.9}px)`;
-        ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
-        ctx.lineWidth   = lw;
-        ctx.beginPath();
-    }
-
-    for (const d of drops) {
-        if (snow) {
+        // Snow stays the same — soft flakes
+        ctx.fillStyle = `rgba(238,242,245,0.82)`;
+        for (const d of drops) {
             ctx.save();
+            ctx.globalAlpha = 0.55 + d.opVar * 0.3;
             ctx.translate(d.x, d.y);
             ctx.rotate(d.rot);
             ctx.beginPath();
@@ -1006,31 +976,53 @@ function drawRain() {
             ctx.fill();
             ctx.restore();
             d.y += d.s;
-            d.x += wind*d.dr + Math.sin(d.y * 0.03 + d.rot) * 0.15;
+            d.x += wind * d.dr + Math.sin(d.y * 0.03 + d.rot) * 0.15;
             d.rot += d.rotSp;
-        } else {
-            ctx.moveTo(d.x,d.y); ctx.lineTo(d.x+angle, d.y+d.l);
-            d.y += d.s; d.x += wind*2;
+            const pad = 120;
+            if (d.y > CH + pad || d.x < -pad * 2 || d.x > CW + pad * 2) {
+                const nd = createDrop(false, 0);
+                d.x = Math.random() * (CW + pad * 2) - pad; d.y = -Math.random() * pad;
+                d.r = nd.r; d.dr = nd.dr; d.rot = nd.rot; d.rotSp = nd.rotSp; d.rough = nd.rough; d.opVar = nd.opVar;
+            }
         }
-        const pad=120;
-        if (d.y>CH+pad||d.x<-pad*2||d.x>CW+pad*2) {
-            const nd=createDrop(snow, lvl);
-            d.x=Math.random()*(CW+pad*2)-pad; d.y=-Math.random()*pad;
-            d.l=nd.l; d.s=nd.s; d.r=nd.r; d.dr=nd.dr; d.rot=nd.rot; d.rotSp=nd.rotSp; d.rough=nd.rough;
-        }
-    }
-    if (!snow) {
-        ctx.stroke();
-        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+        return;
     }
 
-    if (lvl===4 && !snow) {
-        ctx.fillStyle='rgba(155,168,182,0.045)';
-        ctx.fillRect(0,0,CW,CH);
+    // ── Soft blurred rain streaks ─────────────────────────────────────────
+    const dropImg = getRainDropCanvas(lvl);
+    const dw = dropImg.width;
+    const dh = dropImg.height;
+
+    ctx.save();
+    // Tilt canvas to match wind angle — positive wind = rightward tilt
+    if (Math.abs(angle) > 0.5) {
+        ctx.translate(CW / 2, CH / 2);
+        ctx.rotate(-Math.atan2(angle, RAIN_LEN[lvl]) * 0.55);
+        ctx.translate(-CW / 2, -CH / 2);
+    }
+
+    for (const d of drops) {
+        const alpha = baseAlpha * d.opVar;
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(dropImg, Math.round(d.x - dw / 2), Math.round(d.y - 4));
+        d.y += d.s;
+        d.x += wind * 2;
+        const pad = 120;
+        if (d.y > CH + pad || d.x < -pad * 2 || d.x > CW + pad * 2) {
+            const nd = createDrop(false, lvl);
+            d.x = Math.random() * (CW + pad * 2) - pad; d.y = -Math.random() * pad;
+            d.l = nd.l; d.s = nd.s; d.opVar = nd.opVar;
+        }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    if (lvl === 4) {
+        ctx.fillStyle = 'rgba(155,168,182,0.032)';
+        ctx.fillRect(0, 0, CW, CH);
     }
 }
-
-function updateRainDrops() {} // pohyb řeší drawRain přímo
 
 let lightAlpha=0, lightTimer=0, lightPhase=0;
 
@@ -1047,7 +1039,6 @@ function drawLightning(now) {
         else lightAlpha=0;
     }
     else if (lightPhase===2&&elapsed>80) lightAlpha=0;
-
     if (lightAlpha>0) {
         ctx.fillStyle=`rgba(255,255,255,${lightAlpha})`;
         ctx.fillRect(0,0,CW,CH);
@@ -1060,11 +1051,9 @@ let fpsArr = [], lastFpsTime = 0;
 
 function frame(now) {
     requestAnimationFrame(frame);
-
     if (now - lastFrame < FRAME_MS - 2) return;
     const dt = now - lastFrame;
     lastFrame = now;
-
     fpsArr.push(1000/dt);
     if (fpsArr.length>20) fpsArr.shift();
     if (now-lastFpsTime>1000) {
@@ -1072,27 +1061,21 @@ function frame(now) {
         document.getElementById('fps').textContent=avg+' fps';
         lastFpsTime=now;
     }
-
     if (!W.name) return;
-
     const t    = (now-t0)*.001;
     const hour = W.hour??12;
     const dl   = getDL(hour);
     const cloud= W.cloud||0;
-
     let bc = getBG(W.temp||15, cloud);
     if (isSnow(W)) bc=[Math.round(bc[0]*.72),Math.round(bc[1]*.76),Math.round(bc[2]*.84)];
     const fc = applyLight(bc, dl);
     drawSkyBackdrop(fc, dl, cloud, hour);
-
     drawTwilightTint(hour, cloud);
     drawSunMoon(t, dl, cloud, hour);
     drawClouds(t);
     drawSmog(t, dl, cloud);
     drawFog(t);
-    updateRainDrops();
     drawRain();
-
     if (raining && !isSnow(W) && W.rain>2 && cloud>90 && Math.random()<.008)
         triggerLightning();
     drawLightning(now);
@@ -1103,11 +1086,11 @@ requestAnimationFrame(frame);
 
 function applyWeather(w) {
     W = w;
-
     const newP = isSnow(w)?'snow':w.rain>.1?'rain':'none';
     raining = w.rain>.1;
     if (newP!==precipType) {
         precipType=newP;
+        rainDropOSC = {};
         raining?initRain():(drops=[]);
     } else if (raining&&!drops.length) initRain();
 
@@ -1116,7 +1099,6 @@ function applyWeather(w) {
         ? clamp(cloudTotal * 0.2 + w.cloudLow * 0.48 + w.cloudMid * 0.22 + w.cloudHigh * 0.1, 0, 100)
         : cloudTotal;
     const visualCloud = isFog(w) ? Math.min(layeredCloud * 0.28, 24) : layeredCloud;
-
     cDensity = clamp((visualCloud-14)/80,0,1);
     cWind    = w.wind||0;
     cStorm   = w.name==='BOUŘE' || [95, 96, 99].includes(w.weatherCode)
@@ -1207,6 +1189,7 @@ function sliderUpdate() {
     document.getElementById('sv-rain').textContent  = rain>0 ? `${rain.toFixed(1)} · ${desc}` : '0.0';
     document.getElementById('sv-wind').textContent  = wind.toFixed(2);
     document.querySelectorAll('.p-btn').forEach(b=>b.classList.remove('on'));
+    rainDropOSC = {};
     applyWeather({ name:guessName(temp,rain,cloud), temp, rain, cloud, wind, hour });
 }
 
